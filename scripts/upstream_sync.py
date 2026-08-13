@@ -491,7 +491,10 @@ def stage_source_update(
 
     old_hash = tree_hash(skill_root)
     old_commit = _locked_commit(repository_root, source.name)
-    with tempfile.TemporaryDirectory(prefix=".upstream-sync-", dir=repository_root) as temporary:
+    # Keep the staging root short. Repository worktrees can already be close to
+    # Win32 MAX_PATH, and nesting the complete upstream archive below them makes
+    # otherwise valid release members impossible to extract on Windows.
+    with tempfile.TemporaryDirectory(prefix="presentation-upstream-stage-") as temporary:
         temporary_root = Path(temporary)
         upstream_root = _extract_archive(archive_path, temporary_root / "upstream")
         _verify_upstream_license(upstream_root, source)

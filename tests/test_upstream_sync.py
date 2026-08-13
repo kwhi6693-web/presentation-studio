@@ -270,6 +270,31 @@ class StagingImporterTests(unittest.TestCase):
         self.assertEqual(tree_hash(self.skill), after_first)
         self.assertEqual(first.new_tree_hash, second.new_tree_hash)
 
+    def test_long_repository_path_does_not_break_staging(self) -> None:
+        long_root = (
+            self.root
+            / ("repository-path-segment-" + "a" * 55)
+            / ("nested-segment-" + "b" * 35)
+        )
+        long_engine = long_root / "presentation-studio" / "engines" / "sample"
+        long_engine.mkdir(parents=True)
+        (long_root / "presentation-studio" / "SKILL.md").write_text(
+            "root\n", encoding="utf-8"
+        )
+        (long_engine / "SKILL.md").write_text("adapter\n", encoding="utf-8")
+        archive = self.make_archive(
+            {
+                "author-skill-release/LICENSE": "MIT License\n",
+                "author-skill-release/package/LICENSE": "MIT License\n",
+                "author-skill-release/package/new.txt": "new\n",
+            }
+        )
+
+        result = stage_source_update(long_root, self.source, self.release, archive)
+
+        self.assertEqual(result.new_commit, self.release.commit)
+        self.assertEqual((long_engine / "new.txt").read_text(encoding="utf-8"), "new\n")
+
 
 class MetadataAndReportingTests(unittest.TestCase):
     def setUp(self) -> None:
