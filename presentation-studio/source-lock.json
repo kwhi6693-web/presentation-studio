@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "import_date": "2026-08-11",
+  "sources": [
+    {
+      "name": "ppt-master",
+      "repository": "https://github.com/hugohe3/ppt-master.git",
+      "branch": "main",
+      "commit": "ef0d585d5dc693d65be0b2aee5e8723b6264c367",
+      "commit_date": "2026-08-11T02:11:20Z",
+      "license": "MIT",
+      "used_modules": ["skills/ppt-master"],
+      "dependencies": ["Python 3", "python-pptx", "XlsxWriter", "skia-pathops", "uharfbuzz", "edge-tts", "PyMuPDF", "mammoth", "markdownify", "ebooklib", "nbconvert", "openpyxl", "Pillow", "numpy", "requests", "beautifulsoup4", "curl_cffi", "google-genai", "flask", "optional Pandoc/PowerPoint/LibreOffice"]
+    },
+    {
+      "name": "guizang-ppt-skill",
+      "repository": "https://github.com/op7418/guizang-ppt-skill.git",
+      "branch": "main",
+      "commit": "c91369c449d34755d320a8b81d0734000d99d1ab",
+      "commit_date": "2026-08-07T11:58:06+08:00",
+      "license": "AGPL-3.0",
+      "used_modules": ["SKILL.md", "assets", "references", "scripts"],
+      "dependencies": ["Node.js", "browser", "optional Playwright (not declared in a package manifest)"]
+    },
+    {
+      "name": "frontend-slides",
+      "repository": "https://github.com/zarazhangrui/frontend-slides.git",
+      "branch": "main",
+      "commit": "9906a34d640d2111f724544cbc50f7f130569ae1",
+      "commit_date": "2026-06-23T13:08:18-07:00",
+      "license": "MIT",
+      "used_modules": ["SKILL.md", "animation-patterns.md", "html-template.md", "STYLE_PRESETS.md", "viewport-base.css", "bold-template-pack", "scripts"],
+      "dependencies": ["Python 3", "python-pptx", "Node.js/npx", "Playwright", "bash", "optional Vercel CLI"]
+    },
+    {
+      "name": "baoyu-skills",
+      "repository": "https://github.com/JimLiu/baoyu-skills.git",
+      "branch": "main",
+      "commit": "6b7a2e417500561a5ecdd0b168332f4142584617",
+      "commit_date": "2026-07-03T20:22:55-05:00",
+      "license": "MIT",
+      "used_modules": ["skills/baoyu-image-gen", "skills/baoyu-slide-deck", "skills/baoyu-cover-image", "skills/baoyu-infographic", "skills/baoyu-diagram", "skills/baoyu-article-illustrator", "packages/baoyu-codex-imagegen", "package.json", "package-lock.json", "scripts/run-node-tests.mjs"],
+      "dependencies": ["Node.js", "tsx", "pdf-lib", "pptxgenjs", "sharp", "optional Bun", "provider APIs and Codex CLI"]
+    }
+  ]
+}

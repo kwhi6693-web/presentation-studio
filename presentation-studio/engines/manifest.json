@@ -1,0 +1,38 @@
+{
+  "ppt-master": {
+    "source_name": "ppt-master",
+    "path": "engines/ppt-master",
+    "entry": "SKILL.md",
+    "license_file": "LICENSE",
+    "license": "MIT",
+    "commit": "ef0d585d5dc693d65be0b2aee5e8723b6264c367",
+    "role": "native editable PPTX renderer and editor"
+  },
+  "guizang": {
+    "source_name": "guizang-ppt-skill",
+    "path": "engines/guizang",
+    "entry": "SKILL.md",
+    "license_file": "LICENSE",
+    "license": "AGPL-3.0",
+    "commit": "c91369c449d34755d320a8b81d0734000d99d1ab",
+    "role": "Swiss/editorial design and presenter runtime"
+  },
+  "frontend-slides": {
+    "source_name": "frontend-slides",
+    "path": "engines/frontend-slides",
+    "entry": "SKILL.md",
+    "license_file": "LICENSE",
+    "license": "MIT",
+    "commit": "9906a34d640d2111f724544cbc50f7f130569ae1",
+    "role": "single-file HTML renderer and visual discovery"
+  },
+  "baoyu": {
+    "source_name": "baoyu-skills",
+    "path": "engines/baoyu",
+    "entry": "skills/baoyu-image-gen/SKILL.md",
+    "license_file": "LICENSE",
+    "license": "MIT",
+    "commit": "6b7a2e417500561a5ecdd0b168332f4142584617",
+    "role": "image, cover, slide-image, infographic, diagram, and illustration capabilities"
+  }
+}

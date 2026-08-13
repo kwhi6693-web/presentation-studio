@@ -1,0 +1,98 @@
+[
+  {
+    "id": "swiss-editorial",
+    "name": "Swiss editorial",
+    "description": "Structured editorial layouts with bold typography and generous white space.",
+    "topic_tags": ["business", "strategy", "editorial"],
+    "audience_tags": ["investors", "executives", "general"],
+    "purpose_tags": ["briefing", "editorial-story", "report"],
+    "tone_tags": ["restrained", "professional", "editorial"],
+    "density_tags": ["low", "medium"],
+    "channel_tags": ["meeting", "presentation", "web"],
+    "preferred_design_authority": "guizang"
+  },
+  {
+    "id": "executive-minimal",
+    "name": "Executive minimal",
+    "description": "Restrained, decision-ready slides for executive communication.",
+    "topic_tags": ["business", "finance", "strategy"],
+    "audience_tags": ["investors", "executives", "board"],
+    "purpose_tags": ["fundraising", "investor-pitch", "decision-brief", "board-update"],
+    "tone_tags": ["restrained", "professional", "decisive"],
+    "density_tags": ["low", "medium"],
+    "channel_tags": ["meeting", "presentation"],
+    "preferred_design_authority": "ppt-master"
+  },
+  {
+    "id": "data-analytical",
+    "name": "Data analytical",
+    "description": "Chart-led layouts that prioritize accurate comparisons and clear metrics.",
+    "topic_tags": ["finance", "metrics", "analytics", "data"],
+    "audience_tags": ["investors", "analysts", "executives"],
+    "purpose_tags": ["data-review", "financial-report", "investor-update", "comparison"],
+    "tone_tags": ["precise", "restrained", "evidence-led"],
+    "density_tags": ["medium", "high"],
+    "channel_tags": ["report", "meeting", "presentation"],
+    "preferred_design_authority": "ppt-master"
+  },
+  {
+    "id": "technical-systems",
+    "name": "Technical systems",
+    "description": "Precise diagrams and dense information architecture for technical audiences.",
+    "topic_tags": ["technology", "architecture", "engineering", "systems"],
+    "audience_tags": ["engineers", "technical-leaders", "developers"],
+    "purpose_tags": ["architecture-review", "technical-review", "system-explainer"],
+    "tone_tags": ["precise", "technical", "systematic"],
+    "density_tags": ["medium", "high"],
+    "channel_tags": ["documentation", "meeting", "presentation"],
+    "preferred_design_authority": "ppt-master"
+  },
+  {
+    "id": "narrative-cinematic",
+    "name": "Narrative cinematic",
+    "description": "Visual storytelling with paced sections and immersive imagery.",
+    "topic_tags": ["storytelling", "culture", "vision"],
+    "audience_tags": ["general", "public", "creative"],
+    "purpose_tags": ["keynote", "storytelling", "inspiration"],
+    "tone_tags": ["immersive", "emotional", "cinematic"],
+    "density_tags": ["low"],
+    "channel_tags": ["event", "presentation", "web"],
+    "preferred_design_authority": "guizang"
+  },
+  {
+    "id": "warm-educational",
+    "name": "Warm educational",
+    "description": "Approachable explanatory layouts with clear teaching cues.",
+    "topic_tags": ["education", "learning", "science"],
+    "audience_tags": ["students", "learners", "general"],
+    "purpose_tags": ["teaching", "explainer", "training"],
+    "tone_tags": ["warm", "approachable", "encouraging"],
+    "density_tags": ["low", "medium"],
+    "channel_tags": ["classroom", "presentation", "article"],
+    "preferred_design_authority": "ppt-master"
+  },
+  {
+    "id": "bold-promotional",
+    "name": "Bold promotional",
+    "description": "High-contrast, energetic layouts for launches and campaigns.",
+    "topic_tags": ["product", "marketing", "launch"],
+    "audience_tags": ["customers", "public", "buyers"],
+    "purpose_tags": ["product-launch", "campaign", "promotion"],
+    "tone_tags": ["bold", "energetic", "confident"],
+    "density_tags": ["low"],
+    "channel_tags": ["social", "event", "web"],
+    "preferred_design_authority": "guizang"
+  },
+  {
+    "id": "visual-infographic",
+    "name": "Visual infographic",
+    "description": "Illustration-forward compositions for conveying information visually.",
+    "topic_tags": ["data", "information", "process"],
+    "audience_tags": ["general", "executives", "readers"],
+    "purpose_tags": ["data-summary", "comparison", "explainer"],
+    "tone_tags": ["clear", "visual", "approachable"],
+    "density_tags": ["medium", "high"],
+    "channel_tags": ["article", "report", "social"],
+    "preferred_design_authority": "baoyu"
+  }
+]
