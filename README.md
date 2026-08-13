@@ -103,6 +103,8 @@ python scripts/upstream_sync.py sync --all --report artifacts/upstream-sync-repo
 
 自动同步支持上游事件触发、手动触发和 5 分钟轮询回退。只有来源、稳定版本、路径和许可证均通过校验，并且仓库全部门禁通过时才会提交。操作说明见 [上游持续同步](docs/upstream-sync.md)。
 
+本次真实同步、示例哈希与仓库门禁记录见 [2026-08-13 验收证据](docs/evidence/acceptance-2026-08-13.md)。
+
 ## English Guide
 
 Presentation Studio combines four upstream specialties behind one product-oriented workflow. A complete brief can take the Fast Path for rapid delivery; exact data, format conflicts, animation, narration, multi-engine composition, or high-risk output automatically escalates to the complete workflow.
@@ -120,6 +122,8 @@ Presentation Studio combines four upstream specialties behind one product-orient
 | **Continuous upstream synchronization** | Stable-release discovery, allowlisted imports, license validation, adapter preservation, full validation before commit | Current capabilities without architecture regression |
 
 The seven major capabilities retain every L0–L19 responsibility. See the [full architecture](docs/architecture.md), [Fast Path contract](presentation-studio/references/fast-path.md), and [upstream synchronization guide](docs/upstream-sync.md).
+
+The live synchronization result, example hashes, and repository gates are recorded in the [2026-08-13 acceptance evidence](docs/evidence/acceptance-2026-08-13.md).
 
 ### Product scope
 

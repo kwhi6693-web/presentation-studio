@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -34,6 +35,14 @@ SIX_EXAMPLE_PATHS = (
 
 
 class RepositoryContractTests(unittest.TestCase):
+    def test_third_party_notice_has_one_nonduplicated_version_source(self) -> None:
+        notice = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8-sig")
+        self.assertIn("presentation-studio/source-lock.json", notice)
+        self.assertIsNone(
+            re.search(r"\b[0-9a-f]{40}\b", notice),
+            "Third-party notice duplicates drift-prone commit values from source-lock.json",
+        )
+
     def test_operational_documentation_is_split_by_audience(self) -> None:
         architecture = ROOT / "docs" / "architecture.md"
         upstream_sync = ROOT / "docs" / "upstream-sync.md"

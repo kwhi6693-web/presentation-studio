@@ -328,6 +328,7 @@ class MetadataAndReportingTests(unittest.TestCase):
     def test_unchanged_release_metadata_does_not_create_timestamp_churn(self) -> None:
         record_release_metadata(self.root, self.source, self.release, "2026-08-13T01:00:00Z")
         first = self.lock_path.read_bytes()
+        self.assertNotIn(b"\r\n", first)
         record_release_metadata(self.root, self.source, self.release, "2026-08-13T01:05:00Z")
         self.assertEqual(self.lock_path.read_bytes(), first)
 

@@ -165,7 +165,7 @@ The following three patterns are topologically different and are not interchange
 
 ## 5. Asset-Dependent Treatments
 
-**Prepared-asset gate**: every treatment below consumes its named project-local asset; it does not authorize creation during SVG realization. Embedded lettering belongs to the artwork only when deliberately fixed; authoritative or editable labels remain native SVG. If a required asset is absent, return to the active workflow's preparation owner or choose a native treatment.
+**Prepared-asset gate**: every treatment below consumes its named project-local asset; it does not authorize creation during SVG realization. Embedded lettering belongs to the artwork only when deliberately fixed; authoritative or editable labels remain native SVG. If a required asset is absent, return to the active workflow's preparation owner or choose a native treatment. [`image-base.md`](./image-base.md) §2 maps these ids to preparation paths without auto-triggering them.
 
 ### 5.1 A1 · Prepared Composites and Appearance
 
@@ -233,7 +233,7 @@ If motion is enabled, [`animations.md`](./animations.md) owns its implementation
 | Scene-backed evidence or metrics | `#P2-01` / `#P2-05` + `#M2-01` or `#M2-03`; let the image carry context and native SVG carry information |
 | One selected region needs explanation | Use `#P2-03` for an outline and caption on one picture; use `#P2-04` when a second same-source picture must magnify the region |
 | Several sources should read as one object | `#P3-21` + restrained `#M3-01`, or `#P3-20` + a native text/color cell |
-| One continuous scene should span detached shapes | `#M1-10` + optional `#M3-05`; keep one-picture topology |
+| One continuous scene should span detached shapes | `#M1-10` + optional `#M3-05`; combine `#P1-08` for a triangular image-and-copy split, and keep one-picture topology |
 | Same-source windows must remain independent | `#M1-11`; add `#C2-01` or `#C2-02` only when consecutive pages use the relationship |
 | A prepared subject should re-layer over its source | `#A2-03`; keep the base and cutout registered, and insert a native middle layer only when it has a distinct job |
 | A busy visual needs one focal region | `#M2-05`, or prepared `#A3-01` / `#A3-03` when a native contrast treatment is insufficient |

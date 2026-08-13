@@ -47,10 +47,12 @@ After entry, continue through selected work, the final checker, and export.
 Pause only for user interruption or an unresolved hard prerequisite.
 
 **Default — optional production behavior (may override when useful)**: Speaker
-notes, custom object animations, and narration start off. The current agent may
-enable any ordinary capability when the request or deck benefits; use its
-normal inputs, flags, and prerequisites without asking for approval. Quick
-never creates or reads a root project Design Spec or lock to enable it.
+notes, Custom Animations, and narration start off for ordinary Quick work. The
+current agent may enable any ordinary capability when the request or deck
+benefits; use its normal inputs, flags, and prerequisites without asking for
+approval. Quick video delivery follows the mandatory Custom Animations rule
+below. Quick never creates or reads a root project Design Spec or lock to enable
+an optional or mandatory capability.
 
 **Mandatory — discover motion before deciding whether to load it**: apply this
 gate once during §2's pre-P01 planning. Do not load the full reference when
@@ -69,13 +71,18 @@ defaults when no row supplies a concrete communication job. When several
 signals apply, perform every required action and use the earliest required load
 point; a before-authoring signal always overrides a before-export-only timing.
 
-**Direct-video application**: when [`video-design.md`](../../references/video-design.md)
-is active for Quick direct delivery, use this gate as the required pre-audio
-motion choice, not an animation quota. Morph and page/object-specific rows
-activate Custom Animations; narration-governed reveals also activate cue
-synchronization. The deck-wide row remains independent of narration and must
-not be reported as synchronized; static or
-page-transition-only motion remains valid.
+**Hard rule — Quick video Custom Animations**: when
+[`video-design.md`](../../references/video-design.md) is active because the
+effective Quick delivery purpose is recorded, self-running, or video-directed,
+enable Custom Animations, load [`animations.md`](../../references/animations.md)
+before SVG authoring, preserve the required semantic motion units, and run
+[`customize-animations`](../stages/customize-animations.md) after the final
+checker. Use the discovery table above to choose the choreography, not whether
+Custom Animations exists. Individual pages or groups may remain static, so this
+is not an animation-coverage quota. A Quick video run without a validated
+`animations.json` fails this requirement unless the user explicitly requests
+static or page-transition-only playback. Narration-governed motion also
+activates cue synchronization.
 
 ---
 
@@ -256,7 +263,7 @@ Before P01, apply the §1 gate while co-resolving these choices; freeze
 the roster after the whole-roster check:
 
 - the narrative beats, mental-map arcs, candidate visible states, their semantic deltas, and enabled notes segments. Adopt continuity only when it clarifies the message. Profile-fixed count/order/content, including 1:1/fidelity, permits only existing-neighbor evaluation; never alter those invariants to manufacture endpoints;
-- the effective Speaker Notes, Custom Animations, and Narration Audio outcomes; narration requires notes, later recording forces neither audio nor object animation, and Quick direct video follows [`video-design.md`](../../references/video-design.md): enable notes/narration/video, decide motion before audio, and enable Custom Animations only for narration-cued or other page/object-specific motion;
+- the effective Speaker Notes, Custom Animations, and Narration Audio outcomes; narration requires notes, later recording alone forces neither audio nor object animation, while a Quick recorded/self-running/video delivery purpose follows [`video-design.md`](../../references/video-design.md) and enables Custom Animations before SVG authoring; direct narrated video additionally enables notes/narration/video and decides before audio whether narration governs group timing;
 - the resulting exact slide roster and one compact core message for every page, used to choose its composition and hierarchy;
 - the canvas, visual direction, wording, intended viewing distance, and effective reading mode: choose `presentation` for distance-first projected or recorded viewing, `balanced` for mixed viewing, or `text` for close content-heavy reading. Take the initial body anchor and sanity band from [`canvas-formats.md`](../../references/canvas-formats.md) § "Typography Scale Start" for the resolved canvas—PPT remains reading-mode-driven, while registered/custom non-PPT canvases use their canvas-derived start—then resolve one concrete typography plan using installed font families, with stable size anchors for title, body, annotation, and every other recurring role the roster uses. When content does not fit, preserve its core message and apply only fitting actions the source/profile invariants permit—restructure, shorten, or split; if none is permitted, surface the unresolved fit instead of shrinking a recurring role. Explicit user, template, fidelity-profile, or resolved-style requirements may call for a deliberate exception;
 - the semantic color roles actually needed by the roster, each with a concrete active-context color anchor, including background/surface, primary/secondary text, dominant/accent, and status roles as applicable. Honor explicit user, installed template/brand, fidelity-profile source-identity, and resolved-style color semantics before deriving only the missing roles that the active profile permits; decide which roles dominate, support, or remain rare, and preserve sufficient contrast for meaning-bearing text. Pair newly authored color-coded states, categories, or relationships with a label, symbol, line, or geometry cue; when fidelity forbids adding one, preserve the source encoding;
@@ -283,13 +290,13 @@ production input for page design; it is not a planning checkpoint. Do not split
 it until the SVG roster exists. Draft narration instead remains source material
 and uses the ordinary post-SVG notes branch when notes are enabled.
 
-**Mandatory — subject-layer capability scan**: Before resource preparation,
-inspect the intended layer relationship rather than treating every reference
-visual as one flat image. When a subject crosses a native title, panel, frame,
-card, or shape, prepare a clean full-canvas base plus a same-canvas RGBA subject
-cutout and use `#A2-03`; follow [`image-generator.md`](../../references/image-generator.md)
-§4.4. A subject that only floats independently may use `#A2-01`. Complete this
-decision and both required assets before SVG authoring.
+**Mandatory — image treatment / subject layers**: Before preparation choose per
+image: `none`; native SVG crop/transform/depth; or prepared
+blur/tone/cutout/registered layers. `none` is valid. A subject crossing native
+content requires a clean full-canvas base plus registered RGBA cutout
+(`#A2-03`; [`image-generator.md`](../../references/image-generator.md) §4.4);
+a floating cutout may use `#A2-01`. Finish assets before SVG per
+[`image-base.md`](../../references/image-base.md) §2–3.
 
 **Mandatory — whole-roster rhythm check**: During the same active-context
 resolution, compare neighbors and section arcs to judge whether chapter entries
@@ -382,12 +389,11 @@ After image resources change, run `analyze_images.py` so
 Operational manifests and provenance are resource truth, not a hidden design
 strategy.
 
-Every required resource must reach a usable terminal state before the
-referencing page is authored. A required `Needs-Manual` resource blocks Quick
-delivery even when an unverified candidate file exists. After a manual supply
-or replacement, validate the file/provenance and reconcile the row to
-`Generated`, `Sourced`, or `Rendered`; do not use file presence as a bypass or
-silently replace it with unrelated material.
+Every required resource must reach a usable terminal state before its page.
+`Needs-Manual` blocks Quick even when an unverified file exists. After manual
+supply/replacement, validate evidence and reconcile to `Existing`, `Generated`,
+`Sourced`, or `Rendered`; never bypass status by file presence or substitute
+unrelated material.
 
 ---
 
@@ -414,8 +420,9 @@ page and reuse throughout the valid execution context:
 [`image-layout-spec.md`](../../references/image-layout-spec.md),
 [`image-layout-patterns.md`](../../references/image-layout-patterns.md), and
 [`svg-image-embedding.md`](../../references/svg-image-embedding.md); add
-[`executor-web-image.md`](../../references/executor-web-image.md) for a sourced
-web image. Reread only after a known file change or context invalidation.
+[`executor-web-image.md`](../../references/executor-web-image.md) for a placed
+`Status: Sourced` image or filename recorded in `image_sources.json`.
+Reread only after a known file change or context invalidation.
 
 `executor-structure.md` is loaded once before all SVG authoring so Quick cannot
 omit shape-composition reasoning. Reuse it throughout the valid execution
@@ -556,15 +563,17 @@ deck-wide-only motion through the selected exporter flags instead.
 
 After visual motion is final, sync a selected cue per
 [`animations.md`](../../references/animations.md) §2.2; otherwise create no
-`sounds/`. Sidecars never use `templates/sounds/`.
+`sounds/`. Sidecars never use `templates/sounds/`. This configures the native
+PPTX only; `generate-audio` completes direct narrated MP4 delivery with either
+the verified native-export mix or an explicitly selected real-time PowerPoint
+slideshow capture. Those sound branches are mutually exclusive.
 
-For Quick direct video, preserve the motion choice made under
-[`video-design.md`](../../references/video-design.md). A static,
-page-transition-only, or narration-independent deck-wide choice may export
-without `animations.json` and does not claim object-level audio sync. Any
-page/object-specific choice completes the custom stage before base export;
-`generate-audio` derives cue timing only for narration-governed groups and
-otherwise exports canonical timing without an object-sync claim.
+For Quick recorded/self-running/video delivery, complete the mandatory Custom
+Animations stage and validate `animations.json` before the base export unless
+the user explicitly requested static or page-transition-only playback. Direct
+narrated video derives cue timing only when narration governs groups; otherwise
+it exports the canonical custom timing without an object-sync claim. Do not
+replace this requirement with deck-wide `-a auto` or page transitions.
 
 Choose exactly one notes mode for the base export:
 
@@ -581,10 +590,13 @@ python3 ${SKILL_DIR}/scripts/svg_to_pptx.py <project_path> \
 `--quick-generate` reads `svg_output/` as the page source and resolves the
 project-local assets referenced by those SVGs. It infers one consistent canvas,
 uses a lockless flat PowerPoint package, and does not force-disable ordinary
-export options. Notes, custom object animation, and narration remain off unless
-selected by the agent. Do not run `finalize_svg.py`. After the validated base
-export, run [`generate-audio`](../stages/generate-audio.md) when Narration Audio
-is enabled; it owns page audio/SRT, narrated PPTX, and optional native MP4.
+export options. Notes, Custom Animations, and narration remain off unless
+selected by the agent or required by the Quick video rule above. Do not run
+`finalize_svg.py`. After the validated base export, run
+[`generate-audio`](../stages/generate-audio.md) when Narration Audio is enabled;
+it owns page audio/SRT, narrated PPTX, the optional raw native MP4, and the
+final mixed or captured MP4. When a selected manual capture has not yet been
+returned, it owns the capture-ready narrated PPTX handoff instead.
 
 The exporter requires a passing `final` report whose SVG fingerprint matches
 the current `svg_output/`; missing, blocking, non-final, or stale reports stop
@@ -608,5 +620,5 @@ or lock.
 - [x] Enabled notes were validated/generated and split; enabled custom motion ran through its owning stage
 - [x] One native PPTX exists under `exports/` or the explicit output path
 - [x] No Strategist, confirmation, root project Design Spec, or lock artifact was created
-- [ ] **Next**: Report the base PPTX and any enabled narrated PPTX/MP4 outputs
+- [ ] **Next**: Report the base PPTX and any enabled narrated PPTX, raw/mixed/captured MP4, or capture-ready PPTX handoff
 ```

@@ -391,6 +391,12 @@ def _timestamp() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def _write_json(path: Path, payload: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="\n") as stream:
+        stream.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+
+
 def _release_metadata(source: SourceConfig, release: ReleaseInfo, checked_at: str) -> dict:
     return {
         "update_policy": "latest-stable-release",
@@ -441,10 +447,8 @@ def _update_staged_metadata(
     if not matched_manifest:
         raise SyncError(f"Engine manifest is missing {source.name}")
 
-    lock_path.write_text(
-        json.dumps(source_lock, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
-    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _write_json(lock_path, source_lock)
+    _write_json(manifest_path, manifest)
 
 
 def record_release_metadata(
@@ -467,9 +471,7 @@ def record_release_metadata(
             if all(item.get(key) == value for key, value in stable_metadata.items()):
                 return
             item.update(metadata)
-            lock_path.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-            )
+            _write_json(lock_path, payload)
             return
     raise SyncError(f"Source lock is missing {source.name}")
 
@@ -610,10 +612,7 @@ def main(argv: list[str] | None = None) -> int:
                 "applied": applied,
             }
             if args.report:
-                args.report.parent.mkdir(parents=True, exist_ok=True)
-                args.report.write_text(
-                    json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-                )
+                _write_json(args.report, report)
             print(json.dumps(report, ensure_ascii=False, indent=2))
             return 0
     except SyncError as error:
@@ -625,11 +624,7 @@ def main(argv: list[str] | None = None) -> int:
                 "error": str(error),
             }
             try:
-                report_path.parent.mkdir(parents=True, exist_ok=True)
-                report_path.write_text(
-                    json.dumps(failure_report, ensure_ascii=False, indent=2) + "\n",
-                    encoding="utf-8",
-                )
+                _write_json(report_path, failure_report)
             except OSError as report_error:
                 print(f"FAIL: unable to write diagnostic report: {report_error}", file=sys.stderr)
         print(f"FAIL: {error}", file=sys.stderr)
