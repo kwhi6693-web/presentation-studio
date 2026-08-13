@@ -2,7 +2,7 @@
 
 ## Scope
 
-This acceptance run covers the lightweight Fast Path, the complete L0–L19 architecture, six bilingual example products, stable upstream synchronization, deterministic packaging, provenance, and repository safety checks.
+This acceptance run covers the lightweight Fast Path, the complete L0–L19 architecture, immediate installation, six bilingual example products, stable upstream synchronization, deterministic packaging, provenance, rendered browser/PowerPoint behavior, and repository safety checks.
 
 ## Live upstream result
 
@@ -21,11 +21,11 @@ A second live `sync --all` run returned `PASS`; a third run left both `source-lo
 
 ## Repository gates
 
-- 30 unit and repository-contract tests: `PASS`.
-- 240 Python source files compiled in-memory without syntax errors or cache output: `PASS`.
+- 41 unit, installer, browser, and repository-contract tests: `PASS`.
+- 241 Python and 9 JavaScript source files parsed without syntax errors or cache output: `PASS`.
 - Skill structure: 13 products, 8 styles, 4 engines, and complete Fast Path escalation terms: `PASS`.
 - Package parity: every on-disk skill file is present exactly once under the single `presentation-studio/` ZIP root: `PASS`.
-- Deterministic package: 65,014,765 bytes; two consecutive builds produced SHA-256 `a34a7a0e52b8e606be2c7975f5fea51470ec2b9ae7099655e295731e3687642b`.
+- Deterministic package: 65,019,773 bytes and 13,276 files; the current build produced SHA-256 `0e53877e736597d22958dcb0f6c56527db01e77caeb2b90cfd07b9649bd4f5d3`.
 - Six bilingual example contracts: `PASS`.
 - Secret-pattern scan for private keys, GitHub tokens, OpenAI-style keys, and AWS access keys: no matches.
 - Largest vendored file: approximately 3.6 MB; no GitHub 100 MB file-limit violation.
@@ -34,6 +34,13 @@ A second live `sync --all` run returned `PASS`; a third run left both `source-lo
 - Runtime preflight detected bundled Python and Node.js plus installed PowerPoint and Microsoft Edge; all four runtime booleans returned `true`.
 - A live dual-format CLI smoke test selected `dual-format-deck`, inferred `swiss-editorial`, routed PPTX to PPT Master, routed HTML/PDF to Frontend Slides, and returned `PASS`.
 - CLI and direct-routing tests do not create `__pycache__` inside the distributable Skill tree.
+- PowerShell and Bash forced-install tests stage outside the discovery directory, compare source/staged file counts, validate before activation, preserve the previous version under `.agents/skill-backups/`, and remove empty staging directories: `PASS`. Windows targets whose deepest file would exceed the portable path limit fail before any destination write.
+- The installed Skill self-check validated all four engine entries and executed the real recommendation/router smoke path; 13,276 source and installed files matched path-for-path and SHA-256-for-SHA-256.
+- PowerPoint rendered all 10 bilingual slides at 1600 × 900. Visual inspection found no clipping, overflow, or missing content.
+- Guizang rendered Swiss measurement and Frontend Slides HTML→PDF both used the preflighted system Edge executable. The English HTML example exposed 5 slides, advanced on `ArrowRight`, and entered editable mode in a real browser.
+- PPT Master's delivery checker found no package or relationship errors in either PPTX; it reported only the common-font portability advisory for the theme face `Calibri Light`.
+- Baoyu's isolated dependency install and upstream Node/TypeScript suite completed 107/107 tests.
+- Module-level preflight confirmed PPTX core, Playwright browser QA, and Baoyu merge dependencies. Optional advanced SVG shaping, narration, ingestion/editor modules, Baoyu's optional TSX runner, and image-provider credentials were absent and remain explicit capability limits rather than false `PASS` claims.
 
 Upstream v4.6.0 contains existing trailing whitespace in a small set of vendored source/SVG files. These files are intentionally kept byte-faithful to the official release. Presentation Studio-owned metadata is normalized to LF and covered by a regression test.
 
@@ -52,4 +59,6 @@ Each PPTX has 5 slides, 5 notes pages, a native chart, a native table, and a nat
 
 ## Status
 
-Repository-level structural, synchronization, provenance, package, and example-product acceptance status: `PASS`.
+Repository-level structure, installation, synchronization, provenance, package, real-browser export, PowerPoint rendering, and example-product acceptance status: `PASS`.
+
+Provider-backed image generation and optional advanced Python/Node feature groups were not executed in this credential-free environment. Their runtime status is `PARTIAL / NOT EXECUTED`; the capabilities remain present in the package and are gated by preflight.

@@ -93,6 +93,7 @@ def verify_structure() -> dict[str, int]:
         "scripts/recommend.py",
         "scripts/preflight.py",
         "scripts/route.py",
+        "scripts/self_check.py",
         "source-lock.json",
     ]
     for relative_path in required:
@@ -125,10 +126,15 @@ def verify_structure() -> dict[str, int]:
     forbidden = [
         path
         for path in files
-        if "__pycache__" in path.parts or path.suffix.lower() in {".pyc", ".pyo"}
+        if any(
+            part in {"__pycache__", ".git", ".mypy_cache", ".pytest_cache", ".ruff_cache", "node_modules"}
+            for part in path.relative_to(SKILL_ROOT).parts
+        )
+        or path.name in {".DS_Store", ".env", "Thumbs.db"}
+        or path.suffix.lower() in {".bak", ".log", ".pyc", ".pyo", ".swp", ".tmp"}
     ]
     if forbidden:
-        fail(f"Python cache artifacts found: {forbidden[0]}")
+        fail(f"Generated, secret, or dependency artifact found: {forbidden[0]}")
     return {"files": len(files), "products": len(products), "styles": len(styles), "engines": len(engines)}
 
 

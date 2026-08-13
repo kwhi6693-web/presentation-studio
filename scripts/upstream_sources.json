@@ -51,7 +51,10 @@
           "mode": "replace"
         }
       ],
-      "preserve": ["engines/guizang/SKILL.md"]
+      "preserve": [
+        "engines/guizang/SKILL.md",
+        "engines/guizang/scripts/validate-swiss-deck.mjs"
+      ]
     },
     {
       "name": "frontend-slides",

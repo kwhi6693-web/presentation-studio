@@ -133,9 +133,13 @@ async function runRenderedMeasurements() {
 
   let browser;
   try {
-    browser = await playwright.chromium.launch({
+    const launchOptions = {
       args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
-    });
+    };
+    if (process.env.PRESENTATION_STUDIO_CHROMIUM) {
+      launchOptions.executablePath = process.env.PRESENTATION_STUDIO_CHROMIUM;
+    }
+    browser = await playwright.chromium.launch(launchOptions);
   } catch (error) {
     warnings.push(`Rendered measurement skipped: Playwright browser launch failed (${error.message.split('\n')[0]}). Static Swiss checks still ran.`);
     return;

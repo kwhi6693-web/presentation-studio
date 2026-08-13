@@ -21,32 +21,56 @@ esac
 
 destination_parent="$(dirname "${destination_path}")"
 destination_leaf="$(basename "${destination_path}")"
+destination_container="$(dirname "${destination_parent}")"
 mkdir -p "${destination_parent}"
+backup_root="${destination_container}/skill-backups/${destination_leaf}"
+staging_root="${destination_container}/.skill-staging/${destination_leaf}"
+staging_path="${staging_root}/$(date +%Y%m%d-%H%M%S)-$$"
 backup_path=""
 
 if [[ -e "${destination_path}" ]]; then
   if [[ "${force}" != "1" ]]; then
-    printf 'Destination exists. Re-run with FORCE=1 to create a timestamped backup first: %s\n' "${destination_path}" >&2
+    printf 'Destination exists. Re-run with FORCE=1 to preserve it outside the skill discovery directory first: %s\n' "${destination_path}" >&2
     exit 1
   fi
-  backup_path="${destination_parent}/${destination_leaf}.backup-$(date +%Y%m%d-%H%M%S)"
-  if [[ -e "${backup_path}" ]]; then
-    printf 'Backup path already exists: %s\n' "${backup_path}" >&2
-    exit 1
-  fi
-  mv "${destination_path}" "${backup_path}"
 fi
 
-if ! cp -a "${source_path}" "${destination_path}"; then
-  failed_path="${destination_path}.failed-$(date +%Y%m%d-%H%M%S)"
-  if [[ -e "${destination_path}" ]]; then
-    mv "${destination_path}" "${failed_path}"
-    printf 'Incomplete copy moved to: %s\n' "${failed_path}" >&2
+python_executable="${PRESENTATION_STUDIO_PYTHON:-}"
+node_executable="${PRESENTATION_STUDIO_NODE:-}"
+if [[ -z "${python_executable}" ]]; then
+  python_executable="$(command -v python3 || command -v python || true)"
+fi
+if [[ -z "${node_executable}" ]]; then
+  node_executable="$(command -v node || true)"
+fi
+for executable in "${python_executable}" "${node_executable}"; do
+  if [[ -z "${executable}" || "${executable,,}" == *windowsapps* || ! -f "${executable}" ]]; then
+    printf 'Python and Node.js are required. Set PRESENTATION_STUDIO_PYTHON and PRESENTATION_STUDIO_NODE to absolute executable paths.\n' >&2
+    exit 1
   fi
-  if [[ -n "${backup_path}" && -e "${backup_path}" ]]; then
+done
+
+mkdir -p "${staging_root}"
+cleanup() {
+  status=$?
+  if [[ -e "${staging_path}" && "${staging_path}" == "${staging_root}/"* ]]; then
+    rm -rf -- "${staging_path}"
+  fi
+  rmdir "${staging_root}" 2>/dev/null || true
+  rmdir "$(dirname "${staging_root}")" 2>/dev/null || true
+  if [[ ${status} -ne 0 && -n "${backup_path}" && -e "${backup_path}" && ! -e "${destination_path}" ]]; then
     mv "${backup_path}" "${destination_path}"
-    printf 'Previous installation restored.\n' >&2
+    printf 'Previous installation restored.\n' >&2 || true
   fi
+  exit ${status}
+}
+trap cleanup EXIT
+
+cp -a "${source_path}" "${staging_path}"
+source_count="$(find "${source_path}" -type f | wc -l | tr -d ' ')"
+staged_count="$(find "${staging_path}" -type f | wc -l | tr -d ' ')"
+if [[ "${source_count}" != "${staged_count}" ]]; then
+  printf 'Installed package copy is incomplete: expected %s files, found %s.\n' "${source_count}" "${staged_count}" >&2
   exit 1
 fi
 
@@ -55,17 +79,40 @@ for required_file in \
   catalog/products.json \
   catalog/styles.json \
   engines/manifest.json \
+  scripts/self_check.py \
   source-lock.json; do
-  if [[ ! -f "${destination_path}/${required_file}" ]]; then
+  if [[ ! -f "${staging_path}/${required_file}" ]]; then
     printf 'Installed package is incomplete: %s\n' "${required_file}" >&2
     exit 1
   fi
 done
 
+self_check_output="$("${python_executable}" "${staging_path}/scripts/self_check.py" \
+  --root "${staging_path}" \
+  --python "${python_executable}" \
+  --node "${node_executable}" \
+  --json)"
+
+if [[ -e "${destination_path}" ]]; then
+  mkdir -p "${backup_root}"
+  backup_path="${backup_root}/$(date +%Y%m%d-%H%M%S)"
+  if [[ -e "${backup_path}" ]]; then
+    backup_path="${backup_path}-$$"
+  fi
+  mv "${destination_path}" "${backup_path}"
+fi
+mv "${staging_path}" "${destination_path}"
+rmdir "${staging_root}" 2>/dev/null || true
+rmdir "$(dirname "${staging_root}")" 2>/dev/null || true
+trap - EXIT
+
 installed_count="$(find "${destination_path}" -type f | wc -l | tr -d ' ')"
 printf 'Presentation Studio installed successfully.\n'
 printf 'Destination: %s\n' "${destination_path}"
 printf 'Files: %s\n' "${installed_count}"
+printf 'Self-check: PASS\n'
+printf 'Python: %s\n' "${python_executable}"
+printf 'Node.js: %s\n' "${node_executable}"
 if [[ -n "${backup_path}" ]]; then
   printf 'Previous installation backup: %s\n' "${backup_path}"
 fi

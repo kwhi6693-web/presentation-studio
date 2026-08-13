@@ -1,5 +1,7 @@
 # Dependency and Portability Contract
 
+The repository installers stage a copy outside the Skill discovery directory and run `scripts/self_check.py` before replacing an existing installation. A forced update stores the previous version under `.agents/skill-backups/presentation-studio/`, so Codex does not discover backup copies as duplicate Skills. The self-check requires real absolute Python and Node executables, validates all four engine entries, and exercises the product recommendation and routing path without third-party Python dependencies.
+
 Resolve workspace runtimes first and pass absolute executable paths. Attempt `codex_app__load_workspace_dependencies` when callable. If unavailable or failed, use this PowerShell 5.1-compatible fallback handoff. Run it from the task or project root. It assumes `$skillRoot` is already the absolute root of the invoked Skill and `$normalizedRequest` is an already-constructed PowerShell object; neither value is interpolated into PowerShell source:
 
 ```powershell
@@ -91,6 +93,6 @@ The two task-local files keep request data out of executable source and preserve
 | Frontend HTML | browser | Playwright + Chromium for PDF/render tests, Vercel only on explicit publish request |
 | Baoyu visual assets | Node.js + tsx or supported Bun path | provider credentials, Codex CLI, sharp/pdf-lib/pptxgenjs by capability |
 
-Run `scripts/preflight.py` before construction. Missing optional dependencies must disable only the affected feature. Keep secrets in environment variables, caches versioned and invalidatable, and temporary files inside the project `.temp/` boundary.
+Run `scripts/preflight.py` before construction. When the dependency loader returns a Node-package directory, pass it as `--node-modules <absolute-directory>`; otherwise the preflight derives the bundled sibling directory when possible. Read `capabilities.python` and `capabilities.node` before selecting advanced SVG, narration, ingestion, browser-QA, or Baoyu TypeScript paths. Missing optional dependencies must disable only the affected feature. Keep secrets in environment variables, caches versioned and invalidatable, and temporary files inside the project `.temp/` boundary.
 
 On Windows, prefer the bundled Node/Python implementations. Treat `.sh`, `mktemp`, `open`, `xdg-open`, and `/usr/local` assumptions as optional compatibility paths, not primary instructions.

@@ -78,6 +78,8 @@ Presentation Studio 将四个上游作者项目的优势统一为一个产品层
 ./scripts/install.sh
 ```
 
+安装器会在发现目录外完成暂存、文件计数与真实自检；强制更新时，旧版本进入 `.agents/skill-backups/presentation-studio/`，不会再形成重复 Skill。Windows 自定义目标若会超过可移植路径上限，会在写入前明确拒绝。The installers stage, count, and self-check the complete package before activation; forced updates keep the previous version outside the Skill discovery directory, and unsafe deep Windows destinations fail before writes.
+
 也可以下载 [确定性构建包](dist/presentation-studio.zip)，并使用 [checksums.sha256](checksums.sha256) 核对 SHA-256。
 
 仓库验收：
@@ -146,7 +148,7 @@ presentation-studio/
 └── source-lock.json         # Pinned sources, releases, licenses, import rules
 examples/                    # Six verified bilingual example products
 scripts/                     # Packaging, repository verification, upstream sync
-docs/                        # Architecture, sync operations, evidence, plans
+docs/                        # Architecture, sync operations, and evidence
 ```
 
 ## Credits and licensing

@@ -16,12 +16,25 @@ DEFAULT_SKILL_ROOT = REPOSITORY_ROOT / "presentation-studio"
 DEFAULT_ARCHIVE_PATH = REPOSITORY_ROOT / "dist" / "presentation-studio.zip"
 DEFAULT_CHECKSUM_PATH = REPOSITORY_ROOT / "checksums.sha256"
 FIXED_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
-EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
+EXCLUDED_DIRECTORIES = {
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "__pycache__",
+    "node_modules",
+}
+EXCLUDED_NAMES = {".DS_Store", ".env", "Thumbs.db"}
+EXCLUDED_SUFFIXES = {".bak", ".log", ".pyc", ".pyo", ".swp", ".tmp"}
 
 
 def _is_included(path: Path, skill_root: Path) -> bool:
     relative = path.relative_to(skill_root)
-    return "__pycache__" not in relative.parts and path.suffix.lower() not in EXCLUDED_SUFFIXES
+    return (
+        not any(part in EXCLUDED_DIRECTORIES for part in relative.parts)
+        and path.name not in EXCLUDED_NAMES
+        and path.suffix.lower() not in EXCLUDED_SUFFIXES
+    )
 
 
 def _skill_files(skill_root: Path) -> list[Path]:

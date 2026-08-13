@@ -67,6 +67,28 @@ class DeterministicPackageTests(unittest.TestCase):
         self.assertFalse(any("__pycache__" in name for name in names))
         self.assertFalse(any(name.endswith((".pyc", ".pyo")) for name in names))
 
+    def test_build_archive_excludes_generated_dependencies_and_secrets(self) -> None:
+        self.assertIsNotNone(build_archive, "scripts.build_package is missing")
+        (self.skill / ".git").mkdir()
+        (self.skill / ".git" / "index").write_bytes(b"git metadata")
+        (self.skill / "node_modules" / "package").mkdir(parents=True)
+        (self.skill / "node_modules" / "package" / "index.js").write_text("bad\n", encoding="utf-8")
+        (self.skill / ".env").write_text("TOKEN=secret\n", encoding="utf-8")
+        (self.skill / ".env.example").write_text("TOKEN=\n", encoding="utf-8")
+        (self.skill / "debug.log").write_text("noise\n", encoding="utf-8")
+        (self.skill / "staging.tmp").write_text("noise\n", encoding="utf-8")
+        archive_path = self.root / "package.zip"
+
+        build_archive(self.skill, archive_path)
+
+        with zipfile.ZipFile(archive_path) as archive:
+            names = set(archive.namelist())
+        self.assertIn("presentation-studio/.env.example", names)
+        self.assertNotIn("presentation-studio/.env", names)
+        self.assertFalse(any("/.git/" in name for name in names))
+        self.assertFalse(any("/node_modules/" in name for name in names))
+        self.assertFalse(any(name.endswith((".log", ".tmp")) for name in names))
+
 
 if __name__ == "__main__":
     unittest.main()
