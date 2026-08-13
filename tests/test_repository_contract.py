@@ -34,6 +34,26 @@ SIX_EXAMPLE_PATHS = (
 
 
 class RepositoryContractTests(unittest.TestCase):
+    def test_operational_documentation_is_split_by_audience(self) -> None:
+        architecture = ROOT / "docs" / "architecture.md"
+        upstream_sync = ROOT / "docs" / "upstream-sync.md"
+        self.assertTrue(architecture.is_file(), "Detailed architecture guide is missing")
+        self.assertTrue(upstream_sync.is_file(), "Upstream synchronization guide is missing")
+        architecture_text = architecture.read_text(encoding="utf-8-sig")
+        sync_text = upstream_sync.read_text(encoding="utf-8-sig")
+        for layer in range(20):
+            self.assertIn(f"L{layer}", architecture_text)
+        for term in (
+            "repository_dispatch",
+            "workflow_dispatch",
+            "schedule",
+            "latest-stable-release",
+            "ahead_of_release",
+            "fail-closed",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, sync_text)
+
     def test_readme_shows_seven_major_layers_and_two_expandable_showcases(self) -> None:
         text = (ROOT / "README.md").read_text(encoding="utf-8-sig")
         for marker in MAJOR_LAYER_MARKERS:
