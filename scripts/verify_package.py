@@ -13,6 +13,11 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote
 
+try:
+    from scripts.verify_examples import verify_all as verify_all_examples
+except ModuleNotFoundError:
+    from verify_examples import verify_all as verify_all_examples
+
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 SKILL_ROOT = REPOSITORY_ROOT / "presentation-studio"
@@ -149,8 +154,37 @@ def verify_readme() -> None:
         fail(f"README is missing required bilingual documentation: {missing}")
 
 
+def verify_repository_assets() -> dict[str, int]:
+    required_paths = (
+        "docs/architecture.md",
+        "docs/upstream-sync.md",
+        ".github/workflows/validate.yml",
+        ".github/workflows/sync-upstreams.yml",
+        "scripts/upstream_sources.json",
+        "scripts/upstream_sync.py",
+        "scripts/verify_examples.py",
+    )
+    for relative_path in required_paths:
+        if not (REPOSITORY_ROOT / relative_path).is_file():
+            fail(f"Missing required repository asset: {relative_path}")
+
+    example_summary = verify_all_examples(REPOSITORY_ROOT)
+    if example_summary.get("status") != "PASS":
+        fail("Bilingual examples did not pass structural acceptance")
+    products = example_summary.get("products", [])
+    if len(products) != 6:
+        fail("Expected exactly six bilingual example products")
+    return {"example_products": len(products)}
+
+
 def verify_local_markdown_links() -> None:
-    for document_name in ["README.md", "CONTRIBUTORS.md", "THIRD_PARTY_NOTICES.md"]:
+    for document_name in [
+        "README.md",
+        "CONTRIBUTORS.md",
+        "THIRD_PARTY_NOTICES.md",
+        "docs/architecture.md",
+        "docs/upstream-sync.md",
+    ]:
         document_path = REPOSITORY_ROOT / document_name
         text = document_path.read_text(encoding="utf-8-sig")
         for raw_target in re.findall(r"\]\(([^)]+)\)", text):
@@ -243,6 +277,7 @@ def main() -> int:
     try:
         summary = verify_structure()
         verify_readme()
+        repository_assets = verify_repository_assets()
         verify_local_markdown_links()
         archive = verify_archive(summary["files"])
     except (AssertionError, OSError, ValueError, zipfile.BadZipFile) as error:
@@ -250,7 +285,7 @@ def main() -> int:
         return 1
 
     print("PASS: Presentation Studio package is structurally complete.")
-    print(json.dumps({**summary, **archive}, ensure_ascii=False, indent=2))
+    print(json.dumps({**summary, **repository_assets, **archive}, ensure_ascii=False, indent=2))
     return 0
 
 

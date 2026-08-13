@@ -460,7 +460,13 @@ def record_release_metadata(
         raise SyncError("Unable to record release metadata") from error
     for item in payload.get("sources", []):
         if isinstance(item, dict) and item.get("name") == source.name:
-            item.update(_release_metadata(source, release, checked_at))
+            metadata = _release_metadata(source, release, checked_at)
+            stable_metadata = {
+                key: value for key, value in metadata.items() if key != "checked_at"
+            }
+            if all(item.get(key) == value for key, value in stable_metadata.items()):
+                return
+            item.update(metadata)
             lock_path.write_text(
                 json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
             )
@@ -608,6 +614,21 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(report, ensure_ascii=False, indent=2))
             return 0
     except SyncError as error:
+        report_path = getattr(args, "report", None)
+        if report_path:
+            failure_report = {
+                "status": "FAIL",
+                "checked_at": _timestamp(),
+                "error": str(error),
+            }
+            try:
+                report_path.parent.mkdir(parents=True, exist_ok=True)
+                report_path.write_text(
+                    json.dumps(failure_report, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+            except OSError as report_error:
+                print(f"FAIL: unable to write diagnostic report: {report_error}", file=sys.stderr)
         print(f"FAIL: {error}", file=sys.stderr)
         return 1
 

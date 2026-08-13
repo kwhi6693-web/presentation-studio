@@ -1,0 +1,69 @@
+name: Sync stable upstream releases
+
+on:
+  repository_dispatch:
+    types: [upstream_release]
+  workflow_dispatch:
+  schedule:
+    - cron: "2/5 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: upstream-release-sync
+  cancel-in-progress: true
+
+jobs:
+  synchronize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Stage latest stable upstream releases
+        run: python scripts/upstream_sync.py sync --all --report artifacts/upstream-sync-report.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run unit and repository contract tests
+        run: python -m unittest discover -s tests -v
+      - name: Verify bilingual example products
+        run: python scripts/verify_examples.py
+      - name: Build deterministic package
+        run: python scripts/build_package.py
+      - name: Verify package and archive parity
+        run: python scripts/verify_package.py
+      - name: Stage verified changes
+        id: changes
+        shell: bash
+        run: |
+          git add -- \
+            presentation-studio/engines \
+            presentation-studio/source-lock.json \
+            dist/presentation-studio.zip \
+            checksums.sha256
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Commit and push synchronized sources
+        if: steps.changes.outputs.changed == 'true'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: sync stable upstream releases"
+          git push
+      - name: Upload synchronization report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-sync-report
+          path: artifacts/upstream-sync-report.json
+          if-no-files-found: warn
+          retention-days: 14

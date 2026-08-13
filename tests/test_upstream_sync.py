@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 import zipfile
@@ -12,7 +13,9 @@ from scripts.upstream_sync import (
     SyncError,
     classify_update,
     discover_latest_release,
+    main,
     parse_release,
+    record_release_metadata,
 )
 
 try:
@@ -266,6 +269,50 @@ class StagingImporterTests(unittest.TestCase):
 
         self.assertEqual(tree_hash(self.skill), after_first)
         self.assertEqual(first.new_tree_hash, second.new_tree_hash)
+
+
+class MetadataAndReportingTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory(prefix="presentation-upstream-metadata-")
+        self.root = Path(self.temporary.name)
+        (self.root / "presentation-studio").mkdir()
+        self.source = SourceConfig(
+            name="sample",
+            owner="author",
+            repository_name="skill",
+            repository="https://github.com/author/skill.git",
+            expected_license="MIT",
+            imports=(ImportRule(source="package", destination="engines/sample", mode="replace"),),
+            preserve=(),
+        )
+        self.release = ReleaseInfo(
+            tag="v1.2.3",
+            commit="a" * 40,
+            url="https://github.com/author/skill/releases/tag/v1.2.3",
+            published_at="2026-08-13T00:00:00Z",
+        )
+        self.lock_path = self.root / "presentation-studio" / "source-lock.json"
+        self.lock_path.write_text(
+            json.dumps({"sources": [{"name": "sample"}]}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def test_unchanged_release_metadata_does_not_create_timestamp_churn(self) -> None:
+        record_release_metadata(self.root, self.source, self.release, "2026-08-13T01:00:00Z")
+        first = self.lock_path.read_bytes()
+        record_release_metadata(self.root, self.source, self.release, "2026-08-13T01:05:00Z")
+        self.assertEqual(self.lock_path.read_bytes(), first)
+
+    def test_sync_cli_writes_failure_report_before_returning_nonzero(self) -> None:
+        report = self.root / "artifacts" / "failure.json"
+        exit_code = main(["sync", "--source", "does-not-exist", "--report", str(report)])
+        self.assertEqual(exit_code, 1)
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual(payload["status"], "FAIL")
+        self.assertIn("Unknown upstream source", payload["error"])
 
 
 if __name__ == "__main__":
