@@ -1,23 +1,25 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+import zipfile
+from pathlib import Path
+
+from scripts.upstream_sync import (
+    ImportRule,
+    ReleaseInfo,
+    SourceConfig,
+    SyncError,
+    classify_update,
+    discover_latest_release,
+    parse_release,
+)
 
 try:
-    from scripts.upstream_sync import (
-        ReleaseInfo,
-        SourceConfig,
-        SyncError,
-        classify_update,
-        discover_latest_release,
-        parse_release,
-    )
-except ModuleNotFoundError:
-    ReleaseInfo = None
-    SourceConfig = None
-    SyncError = RuntimeError
-    classify_update = None
-    discover_latest_release = None
-    parse_release = None
+    from scripts.upstream_sync import stage_source_update, tree_hash
+except ImportError:
+    stage_source_update = None
+    tree_hash = None
 
 
 class FakeClient:
@@ -145,6 +147,125 @@ class ReleaseDiscoveryTests(unittest.TestCase):
                     lambda base, head, result=relation: result,
                 )
                 self.assertEqual(status, "update_available")
+
+
+class StagingImporterTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.assertIsNotNone(stage_source_update, "staging importer is missing")
+        self.temporary = tempfile.TemporaryDirectory(prefix="presentation-upstream-stage-")
+        self.root = Path(self.temporary.name)
+        self.skill = self.root / "presentation-studio"
+        self.engine = self.skill / "engines" / "sample"
+        self.engine.mkdir(parents=True)
+        (self.skill / "SKILL.md").write_text("root\n", encoding="utf-8")
+        (self.engine / "SKILL.md").write_text("adapter\n", encoding="utf-8")
+        (self.engine / "LICENSE").write_text("MIT License\n", encoding="utf-8")
+        (self.engine / "old.txt").write_text("old\n", encoding="utf-8")
+        self.source = SourceConfig(
+            name="sample",
+            owner="author",
+            repository_name="skill",
+            repository="https://github.com/author/skill.git",
+            expected_license="MIT",
+            imports=(
+                ImportRule(source="package", destination="engines/sample", mode="replace"),
+            ),
+            preserve=("engines/sample/SKILL.md",),
+            license_candidates=("LICENSE",),
+        )
+        self.release = ReleaseInfo(
+            tag="v2.0.0",
+            commit="d" * 40,
+            url="https://github.com/author/skill/releases/tag/v2.0.0",
+            published_at="2026-08-13T00:00:00Z",
+        )
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def make_archive(self, members: dict[str, bytes | str]) -> Path:
+        archive_path = self.root / f"fixture-{len(list(self.root.glob('fixture-*.zip')))}.zip"
+        with zipfile.ZipFile(archive_path, "w") as archive:
+            for name, content in members.items():
+                data = content.encode("utf-8") if isinstance(content, str) else content
+                archive.writestr(name, data)
+        return archive_path
+
+    def test_successful_stage_replaces_import_and_restores_adapter(self) -> None:
+        archive = self.make_archive(
+            {
+                "author-skill-release/LICENSE": "MIT License\n",
+                "author-skill-release/package/LICENSE": "MIT License\n",
+                "author-skill-release/package/new.txt": "new\n",
+                "author-skill-release/package/SKILL.md": "upstream entry\n",
+            }
+        )
+
+        result = stage_source_update(self.root, self.source, self.release, archive)
+
+        self.assertEqual((self.engine / "new.txt").read_text(encoding="utf-8"), "new\n")
+        self.assertFalse((self.engine / "old.txt").exists())
+        self.assertEqual((self.engine / "SKILL.md").read_text(encoding="utf-8"), "adapter\n")
+        self.assertEqual(result.old_commit, None)
+        self.assertEqual(result.new_commit, self.release.commit)
+        self.assertIn("presentation-studio/engines/sample", result.changed_paths)
+
+    def test_missing_declared_import_path_leaves_destination_unchanged(self) -> None:
+        archive = self.make_archive(
+            {"author-skill-release/LICENSE": "MIT License\n", "author-skill-release/other.txt": "x"}
+        )
+        before = tree_hash(self.skill)
+
+        with self.assertRaises(SyncError):
+            stage_source_update(self.root, self.source, self.release, archive)
+
+        self.assertEqual(tree_hash(self.skill), before)
+
+    def test_path_traversal_is_rejected_before_any_write(self) -> None:
+        archive = self.make_archive(
+            {
+                "author-skill-release/LICENSE": "MIT License\n",
+                "author-skill-release/package/new.txt": "new\n",
+                "../escape.txt": "unsafe\n",
+            }
+        )
+        before = tree_hash(self.skill)
+
+        with self.assertRaises(SyncError):
+            stage_source_update(self.root, self.source, self.release, archive)
+
+        self.assertEqual(tree_hash(self.skill), before)
+        self.assertFalse((self.root.parent / "escape.txt").exists())
+
+    def test_license_mismatch_is_rejected_atomically(self) -> None:
+        archive = self.make_archive(
+            {
+                "author-skill-release/LICENSE": "Apache License 2.0\n",
+                "author-skill-release/package/new.txt": "new\n",
+            }
+        )
+        before = tree_hash(self.skill)
+
+        with self.assertRaises(SyncError):
+            stage_source_update(self.root, self.source, self.release, archive)
+
+        self.assertEqual(tree_hash(self.skill), before)
+
+    def test_same_archive_is_idempotent(self) -> None:
+        archive = self.make_archive(
+            {
+                "author-skill-release/LICENSE": "MIT License\n",
+                "author-skill-release/package/LICENSE": "MIT License\n",
+                "author-skill-release/package/new.txt": "new\n",
+            }
+        )
+
+        first = stage_source_update(self.root, self.source, self.release, archive)
+        after_first = tree_hash(self.skill)
+        second = stage_source_update(self.root, self.source, self.release, archive)
+
+        self.assertEqual(tree_hash(self.skill), after_first)
+        self.assertEqual(first.new_tree_hash, second.new_tree_hash)
 
 
 if __name__ == "__main__":

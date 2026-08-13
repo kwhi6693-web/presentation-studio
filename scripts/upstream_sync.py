@@ -4,15 +4,20 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
+import shutil
 import sys
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
 from typing import Callable, Protocol
 
 
@@ -77,6 +82,17 @@ class ReleaseInfo:
     published_at: str
 
 
+@dataclass(frozen=True)
+class SyncResult:
+    source: str
+    old_commit: str | None
+    new_commit: str
+    old_tree_hash: str
+    new_tree_hash: str
+    changed_paths: tuple[str, ...]
+    preserved_paths: tuple[str, ...]
+
+
 class GitHubClient:
     def __init__(self, token: str | None = None, timeout: int = 30) -> None:
         self._token = token
@@ -107,6 +123,27 @@ class GitHubClient:
         if not isinstance(payload, dict):
             raise SyncError("GitHub API returned an unexpected payload")
         return payload
+
+    def download(self, path: str, destination: Path) -> None:
+        if not path.startswith("/"):
+            raise SyncError("GitHub download path must be absolute")
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "presentation-studio-upstream-sync",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
+        request = urllib.request.Request(f"{GITHUB_API}{path}", headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=self._timeout) as response, destination.open(
+                "wb"
+            ) as output:
+                shutil.copyfileobj(response, output)
+        except urllib.error.HTTPError as error:
+            raise SyncError(f"GitHub archive download failed with HTTP {error.code}") from error
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            raise SyncError("GitHub archive download failed") from error
 
 
 def _valid_commit(value: object) -> bool:
@@ -235,24 +272,341 @@ def check_sources(
     return results
 
 
+def tree_hash(root: Path) -> str:
+    """Return a stable hash of every file path and byte in a tree."""
+
+    if not root.is_dir():
+        raise SyncError(f"Tree does not exist: {root}")
+    digest = hashlib.sha256()
+    for path in sorted((item for item in root.rglob("*") if item.is_file()), key=lambda p: p.relative_to(root).as_posix()):
+        relative = path.relative_to(root).as_posix().encode("utf-8")
+        digest.update(len(relative).to_bytes(8, "big"))
+        digest.update(relative)
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _safe_archive_members(archive: zipfile.ZipFile) -> tuple[str, list[zipfile.ZipInfo]]:
+    infos = archive.infolist()
+    if not infos:
+        raise SyncError("Upstream archive is empty")
+    roots: set[str] = set()
+    accepted: list[zipfile.ZipInfo] = []
+    for info in infos:
+        name = info.filename
+        pure = PurePosixPath(name)
+        if (
+            not name
+            or "\\" in name
+            or pure.is_absolute()
+            or ".." in pure.parts
+            or not pure.parts
+            or ".git" in pure.parts
+        ):
+            raise SyncError(f"Unsafe upstream archive path: {name}")
+        unix_mode = (info.external_attr >> 16) & 0xFFFF
+        if unix_mode and (unix_mode & 0o170000) == 0o120000:
+            raise SyncError(f"Symbolic links are not allowed in upstream archives: {name}")
+        roots.add(pure.parts[0])
+        accepted.append(info)
+    if len(roots) != 1:
+        raise SyncError("Upstream archive must have exactly one root directory")
+    return next(iter(roots)), accepted
+
+
+def _extract_archive(archive_path: Path, destination: Path) -> Path:
+    try:
+        with zipfile.ZipFile(archive_path) as archive:
+            root_name, infos = _safe_archive_members(archive)
+            for info in infos:
+                pure = PurePosixPath(info.filename)
+                target = destination.joinpath(*pure.parts)
+                if info.is_dir():
+                    target.mkdir(parents=True, exist_ok=True)
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with archive.open(info) as source, target.open("wb") as output:
+                    shutil.copyfileobj(source, output)
+    except (OSError, zipfile.BadZipFile) as error:
+        raise SyncError("Unable to read upstream release archive") from error
+    return destination / root_name
+
+
+def _license_matches(expected: str, text: str) -> bool:
+    normalized = " ".join(text.upper().split())
+    expected_upper = expected.upper()
+    if expected_upper == "MIT":
+        return "MIT LICENSE" in normalized
+    if expected_upper == "AGPL-3.0":
+        return "GNU AFFERO GENERAL PUBLIC LICENSE" in normalized
+    return expected_upper in normalized
+
+
+def _verify_upstream_license(upstream_root: Path, source: SourceConfig) -> None:
+    for candidate in source.license_candidates:
+        path = upstream_root / Path(candidate)
+        if path.is_file():
+            text = path.read_text(encoding="utf-8-sig", errors="replace")
+            if not _license_matches(source.expected_license, text):
+                raise SyncError(f"License changed for {source.name}")
+            return
+    raise SyncError(f"License file is missing for {source.name}")
+
+
+def _copy_item(source_path: Path, destination_path: Path) -> None:
+    if source_path.is_dir():
+        shutil.copytree(source_path, destination_path, copy_function=shutil.copy2)
+    elif source_path.is_file():
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_path, destination_path)
+    else:
+        raise SyncError(f"Declared upstream import path is missing: {source_path}")
+
+
+def _remove_item(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path)
+    elif path.exists():
+        path.unlink()
+
+
+def _locked_commit(repository_root: Path, source_name: str) -> str | None:
+    path = repository_root / "presentation-studio" / "source-lock.json"
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    for item in payload.get("sources", []):
+        if isinstance(item, dict) and item.get("name") == source_name:
+            commit = item.get("commit")
+            return commit if isinstance(commit, str) else None
+    return None
+
+
+def _timestamp() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _release_metadata(source: SourceConfig, release: ReleaseInfo, checked_at: str) -> dict:
+    return {
+        "update_policy": "latest-stable-release",
+        "release_tag": release.tag,
+        "release_url": release.url,
+        "release_commit": release.commit,
+        "release_published_at": release.published_at,
+        "checked_at": checked_at,
+        "import_rules": [asdict(rule) for rule in source.imports],
+    }
+
+
+def _update_staged_metadata(
+    staged_skill: Path,
+    source: SourceConfig,
+    release: ReleaseInfo,
+    synchronized_at: str,
+) -> None:
+    lock_path = staged_skill / "source-lock.json"
+    manifest_path = staged_skill / "engines" / "manifest.json"
+    if not lock_path.is_file() or not manifest_path.is_file():
+        return
+    try:
+        source_lock = json.loads(lock_path.read_text(encoding="utf-8-sig"))
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise SyncError("Unable to update staged provenance metadata") from error
+
+    matched_lock = False
+    for item in source_lock.get("sources", []):
+        if isinstance(item, dict) and item.get("name") == source.name:
+            item.update(_release_metadata(source, release, synchronized_at))
+            item["commit"] = release.commit
+            item["commit_date"] = release.published_at
+            item["synced_at"] = synchronized_at
+            matched_lock = True
+            break
+    if not matched_lock:
+        raise SyncError(f"Staged source lock is missing {source.name}")
+
+    matched_manifest = False
+    for item in manifest.values():
+        if isinstance(item, dict) and item.get("source_name") == source.name:
+            item["commit"] = release.commit
+            item["release_tag"] = release.tag
+            matched_manifest = True
+            break
+    if not matched_manifest:
+        raise SyncError(f"Engine manifest is missing {source.name}")
+
+    lock_path.write_text(
+        json.dumps(source_lock, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def record_release_metadata(
+    repository_root: Path,
+    source: SourceConfig,
+    release: ReleaseInfo,
+    checked_at: str,
+) -> None:
+    lock_path = repository_root / "presentation-studio" / "source-lock.json"
+    try:
+        payload = json.loads(lock_path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise SyncError("Unable to record release metadata") from error
+    for item in payload.get("sources", []):
+        if isinstance(item, dict) and item.get("name") == source.name:
+            item.update(_release_metadata(source, release, checked_at))
+            lock_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+            )
+            return
+    raise SyncError(f"Source lock is missing {source.name}")
+
+
+def stage_source_update(
+    repository_root: Path,
+    source: SourceConfig,
+    release: ReleaseInfo,
+    archive_path: Path,
+) -> SyncResult:
+    """Stage, validate, and atomically apply one source update."""
+
+    repository_root = repository_root.resolve()
+    skill_root = repository_root / "presentation-studio"
+    if not skill_root.is_dir() or not (skill_root / "SKILL.md").is_file():
+        raise SyncError("Repository has no installable presentation-studio tree")
+    if not source.imports:
+        raise SyncError(f"No import rules are declared for {source.name}")
+
+    old_hash = tree_hash(skill_root)
+    old_commit = _locked_commit(repository_root, source.name)
+    with tempfile.TemporaryDirectory(prefix=".upstream-sync-", dir=repository_root) as temporary:
+        temporary_root = Path(temporary)
+        upstream_root = _extract_archive(archive_path, temporary_root / "upstream")
+        _verify_upstream_license(upstream_root, source)
+
+        staged_skill = temporary_root / "presentation-studio"
+        shutil.copytree(skill_root, staged_skill, copy_function=shutil.copy2)
+        preserved: dict[str, Path] = {}
+        for relative_name in source.preserve:
+            existing = staged_skill / Path(relative_name)
+            if not existing.exists():
+                raise SyncError(f"Declared adapter path is missing: {relative_name}")
+            preserved_path = temporary_root / "preserved" / Path(relative_name)
+            _copy_item(existing, preserved_path)
+            preserved[relative_name] = preserved_path
+
+        changed_paths: list[str] = []
+        for rule in source.imports:
+            if rule.mode != "replace":
+                raise SyncError(f"Unsupported import mode for {source.name}: {rule.mode}")
+            source_path = upstream_root / Path(rule.source)
+            destination_path = staged_skill / Path(rule.destination)
+            if not source_path.exists():
+                raise SyncError(f"Declared upstream import path is missing: {rule.source}")
+            _remove_item(destination_path)
+            _copy_item(source_path, destination_path)
+            changed_paths.append(f"presentation-studio/{Path(rule.destination).as_posix()}")
+
+        for relative_name, preserved_path in preserved.items():
+            destination_path = staged_skill / Path(relative_name)
+            _remove_item(destination_path)
+            _copy_item(preserved_path, destination_path)
+
+        synchronized_at = _timestamp()
+        _update_staged_metadata(staged_skill, source, release, synchronized_at)
+
+        if not (staged_skill / "SKILL.md").is_file():
+            raise SyncError("Staged update removed the root Skill entry")
+        new_hash = tree_hash(staged_skill)
+
+        backup = repository_root / ".presentation-studio.sync-backup"
+        if backup.exists():
+            raise SyncError("A previous synchronization backup still exists")
+        try:
+            skill_root.rename(backup)
+            staged_skill.rename(skill_root)
+        except OSError as error:
+            if not skill_root.exists() and backup.exists():
+                backup.rename(skill_root)
+            raise SyncError("Unable to apply staged upstream update atomically") from error
+        try:
+            shutil.rmtree(backup)
+        except OSError as error:
+            raise SyncError("Update applied but the temporary backup could not be removed") from error
+
+    return SyncResult(
+        source=source.name,
+        old_commit=old_commit,
+        new_commit=release.commit,
+        old_tree_hash=old_hash,
+        new_tree_hash=new_hash,
+        changed_paths=tuple(dict.fromkeys(changed_paths)),
+        preserved_paths=source.preserve,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     check_parser = subparsers.add_parser("check", help="Read-only upstream release check")
     check_parser.add_argument("--json", action="store_true", dest="as_json")
     check_parser.add_argument("--source", action="append", default=[])
+    sync_parser = subparsers.add_parser("sync", help="Synchronize verified stable releases")
+    selection = sync_parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--all", action="store_true")
+    selection.add_argument("--source", action="append", default=[])
+    sync_parser.add_argument("--report", type=Path)
     args = parser.parse_args(argv)
 
     try:
         sources = load_source_configs()
-        if args.source:
-            selected = set(args.source)
+        selected_names = getattr(args, "source", [])
+        if selected_names:
+            selected = set(selected_names)
             sources = tuple(source for source in sources if source.name in selected)
             unknown = selected - {source.name for source in sources}
             if unknown:
                 raise SyncError(f"Unknown upstream source: {sorted(unknown)[0]}")
         client = GitHubClient(token=os.environ.get("GITHUB_TOKEN"))
         results = check_sources(sources, load_source_lock(), client)
+        if args.command == "sync":
+            source_map = {source.name: source for source in sources}
+            applied: list[dict] = []
+            checked_at = _timestamp()
+            with tempfile.TemporaryDirectory(prefix="presentation-upstream-download-") as temporary:
+                download_root = Path(temporary)
+                for result in results:
+                    source = source_map[result["name"]]
+                    release = ReleaseInfo(**result["release"])
+                    if result["status"] == "update_available":
+                        archive = download_root / f"{source.name}-{release.commit}.zip"
+                        client.download(
+                            f"/repos/{source.owner}/{source.repository_name}/zipball/{release.commit}",
+                            archive,
+                        )
+                        sync_result = stage_source_update(REPOSITORY_ROOT, source, release, archive)
+                        applied.append(asdict(sync_result))
+                    else:
+                        record_release_metadata(REPOSITORY_ROOT, source, release, checked_at)
+            report = {
+                "status": "PASS",
+                "checked_at": checked_at,
+                "sources": results,
+                "applied": applied,
+            }
+            if args.report:
+                args.report.parent.mkdir(parents=True, exist_ok=True)
+                args.report.write_text(
+                    json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+                )
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            return 0
     except SyncError as error:
         print(f"FAIL: {error}", file=sys.stderr)
         return 1
