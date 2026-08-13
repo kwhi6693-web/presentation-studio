@@ -1,4 +1,7 @@
 * text=auto
+# The installable Skill tree must remain byte-identical to the signed ZIP on
+# every platform. Disable checkout-time CRLF conversion for all vendored files.
+presentation-studio/** -text
 *.zip binary
 *.pptx binary
 *.pdf binary
@@ -11,4 +14,3 @@
 *.woff2 binary
 *.ttf binary
 *.otf binary
-
