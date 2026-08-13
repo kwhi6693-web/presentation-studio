@@ -11,7 +11,7 @@ Route one request to a specialized engine or a hybrid chain. Preserve native edi
 
 1. Before any Python, Node, or Git probe or CLI call, first attempt `codex_app__load_workspace_dependencies` when callable.
 2. Resolve runtimes without PATH ambiguity. Retain the loader's absolute Python, Node, and Git executables; if the loader is unavailable or fails, follow the exact copy-safe block in [dependencies.md](references/dependencies.md), which invokes `scripts/resolve-runtimes.ps1`. That block implements the remaining preflight and recommend handoff below. Never probe PATH first and never use bare `python`, `py`, `node`, or `git`; a WindowsApps Python alias is not runtime evidence. Mark runtime `PARTIAL / NOT EXECUTED` only when both the loader and resolver fail.
-3. Normalize the request: input types, outputs, editability, style, asset needs, presenter/animation needs, aspect ratio, audience, and whether the user asked the system to choose autonomously.
+3. Normalize the request: input types, outputs, editability, style, asset needs, presenter/animation needs, aspect ratio, audience, deadline, brief completeness, and whether the user asked the system to choose autonomously. For a complete brief or short turnaround, read [fast-path.md](references/fast-path.md) and use Fast Path unless an escalation predicate applies.
 4. Run `scripts/preflight.py` with the resolved absolute Python and Node executables. Missing optional providers or desktop applications are recoverable capability limits, not an automatic task failure.
 5. Overwrite the normalized request's `readiness` with the redacted preflight booleans and write the task-local request JSON.
 6. Run `scripts/recommend.py --json-file <task-local-request-json>` with the resolved absolute Python before stating any recommendation or routing. Use the returned product and style only when those request fields are blank; retain nonblank explicit constraints so the router can report conflicts. Only failure of both runtime methods permits `PARTIAL / NOT EXECUTED`. Read [product-retrieval.md](references/product-retrieval.md).
@@ -40,6 +40,7 @@ Use [router.md](references/router.md) for the complete taxonomy and hybrid examp
 - Generated imagery/covers: read [images.md](references/images.md) and the selected Baoyu Skill only.
 - Diagram/infographic: read [diagrams-infographics.md](references/diagrams-infographics.md) and the matching Baoyu Skill; use native PowerPoint objects when editability requires them.
 - Runtime/provider prerequisites: read [dependencies.md](references/dependencies.md).
+- Complete brief or short deadline: read [fast-path.md](references/fast-path.md); retain every mandatory preflight, routing, renderer, data, and quality gate.
 - Licensing and source traceability: read [provenance.md](references/provenance.md) when copying, updating, redistributing, or auditing engine files.
 
 ## Shared execution contract

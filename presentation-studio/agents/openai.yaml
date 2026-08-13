@@ -1,4 +1,4 @@
 interface:
   display_name: "Presentation Studio"
-  short_description: "Intelligent PPT/image selection, native decks, and presentation QA"
-  default_prompt: "Use $presentation-studio to intelligently select the best PPT or image product, then create and validate it in the best native or hybrid format."
+  short_description: "Fast, high-quality PPT/image creation with native QA"
+  default_prompt: "Use $presentation-studio to select the best PPT or image product, take the route-scoped Fast Path when eligible, and validate every requested native or hybrid format."
