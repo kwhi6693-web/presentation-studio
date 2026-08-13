@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "import_date": "2026-08-11",
   "sources": [
     {
@@ -8,7 +8,18 @@
       "branch": "main",
       "commit": "ef0d585d5dc693d65be0b2aee5e8723b6264c367",
       "commit_date": "2026-08-11T02:11:20Z",
+      "update_policy": "latest-stable-release",
+      "release_tag": null,
+      "release_url": null,
+      "release_commit": null,
+      "release_published_at": null,
+      "checked_at": null,
+      "synced_at": null,
       "license": "MIT",
+      "vendored_license_paths": ["engines/ppt-master/LICENSE"],
+      "import_rules": [
+        {"source": "skills/ppt-master", "destination": "engines/ppt-master", "mode": "replace"}
+      ],
       "used_modules": ["skills/ppt-master"],
       "dependencies": ["Python 3", "python-pptx", "XlsxWriter", "skia-pathops", "uharfbuzz", "edge-tts", "PyMuPDF", "mammoth", "markdownify", "ebooklib", "nbconvert", "openpyxl", "Pillow", "numpy", "requests", "beautifulsoup4", "curl_cffi", "google-genai", "flask", "optional Pandoc/PowerPoint/LibreOffice"]
     },
@@ -18,7 +29,21 @@
       "branch": "main",
       "commit": "c91369c449d34755d320a8b81d0734000d99d1ab",
       "commit_date": "2026-08-07T11:58:06+08:00",
+      "update_policy": "latest-stable-release",
+      "release_tag": null,
+      "release_url": null,
+      "release_commit": null,
+      "release_published_at": null,
+      "checked_at": null,
+      "synced_at": null,
       "license": "AGPL-3.0",
+      "vendored_license_paths": ["engines/guizang/LICENSE"],
+      "import_rules": [
+        {"source": "assets", "destination": "engines/guizang/assets", "mode": "replace"},
+        {"source": "references", "destination": "engines/guizang/references", "mode": "replace"},
+        {"source": "scripts", "destination": "engines/guizang/scripts", "mode": "replace"},
+        {"source": "SKILL.md", "destination": "engines/guizang/references/upstream-skill.md", "mode": "replace"}
+      ],
       "used_modules": ["SKILL.md", "assets", "references", "scripts"],
       "dependencies": ["Node.js", "browser", "optional Playwright (not declared in a package manifest)"]
     },
@@ -28,7 +53,23 @@
       "branch": "main",
       "commit": "9906a34d640d2111f724544cbc50f7f130569ae1",
       "commit_date": "2026-06-23T13:08:18-07:00",
+      "update_policy": "latest-stable-release",
+      "release_tag": null,
+      "release_url": null,
+      "release_commit": null,
+      "release_published_at": null,
+      "checked_at": null,
+      "synced_at": null,
       "license": "MIT",
+      "vendored_license_paths": ["engines/frontend-slides/LICENSE"],
+      "import_rules": [
+        {"source": "animation-patterns.md", "destination": "engines/frontend-slides/animation-patterns.md", "mode": "replace"},
+        {"source": "html-template.md", "destination": "engines/frontend-slides/html-template.md", "mode": "replace"},
+        {"source": "STYLE_PRESETS.md", "destination": "engines/frontend-slides/STYLE_PRESETS.md", "mode": "replace"},
+        {"source": "viewport-base.css", "destination": "engines/frontend-slides/viewport-base.css", "mode": "replace"},
+        {"source": "bold-template-pack", "destination": "engines/frontend-slides/bold-template-pack", "mode": "replace"},
+        {"source": "scripts", "destination": "engines/frontend-slides/scripts", "mode": "replace"}
+      ],
       "used_modules": ["SKILL.md", "animation-patterns.md", "html-template.md", "STYLE_PRESETS.md", "viewport-base.css", "bold-template-pack", "scripts"],
       "dependencies": ["Python 3", "python-pptx", "Node.js/npx", "Playwright", "bash", "optional Vercel CLI"]
     },
@@ -38,7 +79,26 @@
       "branch": "main",
       "commit": "6b7a2e417500561a5ecdd0b168332f4142584617",
       "commit_date": "2026-07-03T20:22:55-05:00",
+      "update_policy": "latest-stable-release",
+      "release_tag": null,
+      "release_url": null,
+      "release_commit": null,
+      "release_published_at": null,
+      "checked_at": null,
+      "synced_at": null,
       "license": "MIT",
+      "vendored_license_paths": ["engines/baoyu/LICENSE"],
+      "import_rules": [
+        {"source": "package.json", "destination": "engines/baoyu/package.json", "mode": "replace"},
+        {"source": "package-lock.json", "destination": "engines/baoyu/package-lock.json", "mode": "replace"},
+        {"source": "packages/baoyu-codex-imagegen", "destination": "engines/baoyu/packages/baoyu-codex-imagegen", "mode": "replace"},
+        {"source": "skills/baoyu-image-gen", "destination": "engines/baoyu/skills/baoyu-image-gen", "mode": "replace"},
+        {"source": "skills/baoyu-slide-deck", "destination": "engines/baoyu/skills/baoyu-slide-deck", "mode": "replace"},
+        {"source": "skills/baoyu-cover-image", "destination": "engines/baoyu/skills/baoyu-cover-image", "mode": "replace"},
+        {"source": "skills/baoyu-infographic", "destination": "engines/baoyu/skills/baoyu-infographic", "mode": "replace"},
+        {"source": "skills/baoyu-diagram", "destination": "engines/baoyu/skills/baoyu-diagram", "mode": "replace"},
+        {"source": "skills/baoyu-article-illustrator", "destination": "engines/baoyu/skills/baoyu-article-illustrator", "mode": "replace"}
+      ],
       "used_modules": ["skills/baoyu-image-gen", "skills/baoyu-slide-deck", "skills/baoyu-cover-image", "skills/baoyu-infographic", "skills/baoyu-diagram", "skills/baoyu-article-illustrator", "packages/baoyu-codex-imagegen", "package.json", "package-lock.json", "scripts/run-node-tests.mjs"],
       "dependencies": ["Node.js", "tsx", "pdf-lib", "pptxgenjs", "sharp", "optional Bun", "provider APIs and Codex CLI"]
     }
