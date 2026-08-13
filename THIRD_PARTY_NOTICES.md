@@ -4,16 +4,16 @@ Presentation Studio combines an original routing, retrieval, validation, and dat
 
 Presentation Studio 将原创的路由、检索、校验和数据绑定层，与四个开源项目的锁定快照组合在一起。每个内置项目都保留自身的版权声明和许可证文件；本仓库不会删除或替换上游署名。
 
-| Component / 组件 | Upstream / 上游 | Pinned commit / 锁定提交 | License / 许可证 | Vendored license / 内置许可证 |
-|---|---|---|---|---|
-| PPT Master | https://github.com/hugohe3/ppt-master | `ef0d585d5dc693d65be0b2aee5e8723b6264c367` | MIT | `presentation-studio/engines/ppt-master/LICENSE` |
-| Guizang PPT Skill | https://github.com/op7418/guizang-ppt-skill | `c91369c449d34755d320a8b81d0734000d99d1ab` | AGPL-3.0 | `presentation-studio/engines/guizang/LICENSE` |
-| Frontend Slides | https://github.com/zarazhangrui/frontend-slides | `9906a34d640d2111f724544cbc50f7f130569ae1` | MIT | `presentation-studio/engines/frontend-slides/LICENSE` |
-| Baoyu Skills | https://github.com/JimLiu/baoyu-skills | `6b7a2e417500561a5ecdd0b168332f4142584617` | MIT | `presentation-studio/engines/baoyu/LICENSE` |
+| Component / 组件 | Upstream / 上游 | License / 许可证 | Vendored license / 内置许可证 |
+|---|---|---|---|
+| PPT Master | https://github.com/hugohe3/ppt-master | MIT | `presentation-studio/engines/ppt-master/LICENSE` |
+| Guizang PPT Skill | https://github.com/op7418/guizang-ppt-skill | AGPL-3.0 | `presentation-studio/engines/guizang/LICENSE` |
+| Frontend Slides | https://github.com/zarazhangrui/frontend-slides | MIT | `presentation-studio/engines/frontend-slides/LICENSE` |
+| Baoyu Skills | https://github.com/JimLiu/baoyu-skills | MIT | `presentation-studio/engines/baoyu/LICENSE` |
 
-The machine-readable source of truth is [`presentation-studio/source-lock.json`](presentation-studio/source-lock.json). The engine role map is [`presentation-studio/engines/manifest.json`](presentation-studio/engines/manifest.json).
+The current commit, stable release, synchronization timestamp, import policy, and license paths have one machine-readable source of truth: [`presentation-studio/source-lock.json`](presentation-studio/source-lock.json). The engine role map is [`presentation-studio/engines/manifest.json`](presentation-studio/engines/manifest.json).
 
-机器可读的来源真值位于 [`presentation-studio/source-lock.json`](presentation-studio/source-lock.json)，引擎职责映射位于 [`presentation-studio/engines/manifest.json`](presentation-studio/engines/manifest.json)。
+当前提交、稳定版本、同步时间、导入策略和许可证路径只有一个机器可读真值：[`presentation-studio/source-lock.json`](presentation-studio/source-lock.json)；引擎职责映射位于 [`presentation-studio/engines/manifest.json`](presentation-studio/engines/manifest.json)。
 
 ## Repository-level licensing / 仓库层许可
 

@@ -8,4 +8,4 @@ PPTX→HTML is semantic extraction/redesign unless a separate fidelity check pro
 
 For presenter mode, keep slide IDs and speaker-note IDs aligned; validate rehearsal timing, timer, auto-advance, pointer/annotation, audience sync, screen controls, and low-power mode. Run Guizang's presenter and runtime-sync validators.
 
-Use the cross-platform `engines/frontend-slides/scripts/export-pdf.mjs`. It must resolve Playwright from an existing dependency root and must never install packages during export.
+Use the cross-platform `engines/frontend-slides/scripts/export-pdf.mjs`. Before Guizang rendered measurement or Frontend Slides PDF export, set `NODE_PATH` and `PRESENTATION_STUDIO_CHROMIUM` exactly from `preflight.py`'s `environment_handoff`; this lets Playwright use the already-resolved package root and system Chromium/Edge without downloading a private browser. The exporter must never install packages during export.

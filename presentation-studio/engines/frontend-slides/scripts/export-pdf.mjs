@@ -31,7 +31,8 @@ async function loadPlaywright() {
   for (const root of roots) {
     try {
       const req = createRequire(path.join(root, "package.json"));
-      return await import(pathToFileURL(req.resolve("playwright")).href);
+      const loaded = await import(pathToFileURL(req.resolve("playwright")).href);
+      return loaded.default || loaded;
     } catch {
       // Try the next configured dependency root.
     }
@@ -69,7 +70,10 @@ async function main() {
   let browser;
   try {
     const playwright = await loadPlaywright();
-    browser = await playwright.chromium.launch();
+    const launchOptions = process.env.PRESENTATION_STUDIO_CHROMIUM
+      ? { executablePath: process.env.PRESENTATION_STUDIO_CHROMIUM }
+      : {};
+    browser = await playwright.chromium.launch(launchOptions);
     const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "networkidle" });
     await page.emulateMedia({ media: "print" });

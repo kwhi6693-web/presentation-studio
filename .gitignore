@@ -9,4 +9,5 @@ Thumbs.db
 htmlcov/
 *.log
 *.tmp
+artifacts/
 
