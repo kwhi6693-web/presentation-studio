@@ -4,6 +4,12 @@ import json
 import unittest
 from pathlib import Path
 
+try:
+    from scripts.verify_examples import expected_example_paths, verify_all
+except ImportError:
+    expected_example_paths = None
+    verify_all = None
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -81,6 +87,30 @@ class RepositoryContractTests(unittest.TestCase):
                 self.assertEqual(source["update_policy"], "latest-stable-release")
                 self.assertTrue(source["import_rules"])
                 self.assertTrue(source["vendored_license_paths"])
+
+
+class ExampleContractTests(unittest.TestCase):
+    def test_exact_six_product_roster_exists(self) -> None:
+        self.assertIsNotNone(expected_example_paths, "example verifier is missing")
+        paths = expected_example_paths(ROOT)
+        self.assertEqual(len(paths), 6)
+        self.assertEqual(
+            {path.relative_to(ROOT).as_posix() for path in paths},
+            set(SIX_EXAMPLE_PATHS),
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertTrue(path.is_file(), f"Example product is missing: {path}")
+
+    def test_bilingual_products_pass_structural_acceptance(self) -> None:
+        self.assertIsNotNone(verify_all, "example verifier is missing")
+        summary = verify_all(ROOT)
+        self.assertEqual(summary["status"], "PASS")
+        self.assertEqual(len(summary["products"]), 6)
+        for product in summary["products"]:
+            with self.subTest(path=product["path"]):
+                self.assertEqual(product["status"], "PASS")
+                self.assertEqual(product["pages"], 5)
 
 
 if __name__ == "__main__":
