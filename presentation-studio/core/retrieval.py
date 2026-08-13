@@ -332,7 +332,7 @@ def _supports_request(product: dict[str, Any], request: RetrievalRequest) -> boo
     if request.outputs and not set(request.outputs).issubset(product["outputs"]):
         return False
     if request.editable:
-        if request.outputs and not set(request.outputs).issubset(product["editable_outputs"]):
+        if request.outputs and not set(request.outputs).intersection(product["editable_outputs"]):
             return False
         if not request.outputs and not product["editable"]:
             return False
@@ -367,10 +367,10 @@ def _hard_filter(
         (
             "editable",
             lambda product: not request.editable or (
-                set(request.outputs).issubset(product["editable_outputs"])
+                bool(set(request.outputs).intersection(product["editable_outputs"]))
                 if request.outputs else product["editable"]
             ),
-            "editable: no surviving product provides native editability for the requested outputs",
+            "editable: no surviving product provides an editable requested output",
             "editable=true",
         ),
         (

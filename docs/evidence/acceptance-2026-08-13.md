@@ -21,16 +21,19 @@ A second live `sync --all` run returned `PASS`; a third run left both `source-lo
 
 ## Repository gates
 
-- 26 unit and repository-contract tests: `PASS`.
+- 30 unit and repository-contract tests: `PASS`.
 - 240 Python source files compiled in-memory without syntax errors or cache output: `PASS`.
 - Skill structure: 13 products, 8 styles, 4 engines, and complete Fast Path escalation terms: `PASS`.
 - Package parity: every on-disk skill file is present exactly once under the single `presentation-studio/` ZIP root: `PASS`.
-- Deterministic package: 65,014,711 bytes; two consecutive builds produced SHA-256 `aa50dfb5fae086f011bcfd18563e404dbb66fbf964ae52e414fdd40189933410`.
+- Deterministic package: 65,014,765 bytes; two consecutive builds produced SHA-256 `a34a7a0e52b8e606be2c7975f5fea51470ec2b9ae7099655e295731e3687642b`.
 - Six bilingual example contracts: `PASS`.
 - Secret-pattern scan for private keys, GitHub tokens, OpenAI-style keys, and AWS access keys: no matches.
 - Largest vendored file: approximately 3.6 MB; no GitHub 100 MB file-limit violation.
 - Upstream archive safety: traversal, absolute paths, backslashes, `.git` members, multiple roots, and symbolic links are rejected.
 - License checks: PPT Master, Frontend Slides, and Baoyu are verified as MIT; Guizang is verified as AGPL-3.0.
+- Runtime preflight detected bundled Python and Node.js plus installed PowerPoint and Microsoft Edge; all four runtime booleans returned `true`.
+- A live dual-format CLI smoke test selected `dual-format-deck`, inferred `swiss-editorial`, routed PPTX to PPT Master, routed HTML/PDF to Frontend Slides, and returned `PASS`.
+- CLI and direct-routing tests do not create `__pycache__` inside the distributable Skill tree.
 
 Upstream v4.6.0 contains existing trailing whitespace in a small set of vendored source/SVG files. These files are intentionally kept byte-faithful to the official release. Presentation Studio-owned metadata is normalized to LF and covered by a regression test.
 

@@ -64,18 +64,11 @@ def route_request(raw: dict[str, Any]) -> RoutePlan:
             requested_outputs = (
                 request.outputs if has_explicit_outputs else tuple(selected_product["outputs"])
             )
-            unsupported_editable = tuple(
-                output
-                for output in requested_outputs
-                if output not in selected_product["editable_outputs"]
+            editable_requested_outputs = set(requested_outputs).intersection(
+                selected_product["editable_outputs"]
             )
-            if unsupported_editable:
-                if not selected_product["editable"]:
-                    conflicts.append("editable: true")
-                else:
-                    conflicts.append(
-                        "editable_outputs: " + ", ".join(unsupported_editable)
-                    )
+            if not selected_product["editable"] or not editable_requested_outputs:
+                conflicts.append("editable: no requested output is natively editable")
         unsupported_data_forms = tuple(
             form
             for form in request.data_forms

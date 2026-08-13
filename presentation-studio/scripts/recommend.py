@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
+sys.dont_write_bytecode = True
 sys.path.insert(0, str(SKILL_ROOT))
 
 from core.catalog import CatalogError
