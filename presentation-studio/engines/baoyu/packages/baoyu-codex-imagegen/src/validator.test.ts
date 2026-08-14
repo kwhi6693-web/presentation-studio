@@ -19,9 +19,9 @@ const REAL_SUCCESS_STREAM = `{"type":"thread.started","thread_id":"019edc1c-e7a3
 {"type":"item.completed","item":{"id":"m0","type":"agent_message","text":"Image generation is complete. Locating the newly produced image and copying it to the requested path."}}
 {"type":"item.started","item":{"id":"c0","type":"command_execution","command":"ls $CODEX_HOME/generated_images","status":"in_progress"}}
 {"type":"item.completed","item":{"id":"c0","type":"command_execution","command":"ls $CODEX_HOME/generated_images","exit_code":1,"status":"failed"}}
-{"type":"item.started","item":{"id":"c1","type":"command_execution","command":"cp $CODEX_HOME/generated_images/019edc1c-e7a3-74f0-a276-13bea71d32d6/ig_03eda661.png /Users/x/out/maple.png","status":"in_progress"}}
-{"type":"item.completed","item":{"id":"c1","type":"command_execution","command":"cp $CODEX_HOME/generated_images/019edc1c-e7a3-74f0-a276-13bea71d32d6/ig_03eda661.png /Users/x/out/maple.png","exit_code":0,"status":"completed"}}
-{"type":"item.completed","item":{"id":"m1","type":"agent_message","text":"{\\"status\\":\\"ok\\",\\"path\\":\\"/Users/x/out/maple.png\\",\\"bytes\\":1317377}"}}
+{"type":"item.started","item":{"id":"c1","type":"command_execution","command":"cp $CODEX_HOME/generated_images/019edc1c-e7a3-74f0-a276-13bea71d32d6/ig_03eda661.png ./out/maple.png","status":"in_progress"}}
+{"type":"item.completed","item":{"id":"c1","type":"command_execution","command":"cp $CODEX_HOME/generated_images/019edc1c-e7a3-74f0-a276-13bea71d32d6/ig_03eda661.png ./out/maple.png","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"m1","type":"agent_message","text":"{\\"status\\":\\"ok\\",\\"path\\":\\"./out/maple.png\\",\\"bytes\\":1317377}"}}
 {"type":"turn.completed","usage":{"input_tokens":49489,"cached_input_tokens":34432,"output_tokens":2463,"reasoning_output_tokens":1990}}`;
 
 test("real success stream carries no image_gen item — gating on the stream alone would false-negative (#185)", () => {
@@ -61,7 +61,7 @@ test("verifyOutput passes for valid PNG", async () => {
 });
 
 test("verifyOutput rejects missing file", async () => {
-  await expect(verifyOutput("/no/such/file.png")).rejects.toBeInstanceOf(GenError);
+  await expect(verifyOutput("missing.png")).rejects.toBeInstanceOf(GenError);
 });
 
 test("verifyOutput rejects tiny file", async () => {

@@ -3,11 +3,11 @@ import { parseEventStream, hasImageGenInvocation } from "./parser.ts";
 
 const REAL_PoC_STREAM = `{"type":"thread.started","thread_id":"019e40d3-30e3-7030-874d-773bc0d6d1eb"}
 {"type":"turn.started"}
-{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"sed -n '1,5p' /tmp/x.md","status":"in_progress"}}
-{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"sed -n '1,5p' /tmp/x.md","exit_code":0,"status":"completed"}}
-{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"cp /Users/x/.codex/generated_images/019e40d3/ig_abc.png /tmp/out.png","status":"in_progress"}}
-{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"cp /Users/x/.codex/generated_images/019e40d3/ig_abc.png /tmp/out.png","exit_code":0,"status":"completed"}}
-{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"{\\"status\\":\\"ok\\",\\"path\\":\\"/tmp/out.png\\",\\"bytes\\":1234567}"}}
+{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"sed -n '1,5p' fixtures/x.md","status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"sed -n '1,5p' fixtures/x.md","exit_code":0,"status":"completed"}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"cp $CODEX_HOME/generated_images/019e40d3/ig_abc.png ./out.png","status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"cp $CODEX_HOME/generated_images/019e40d3/ig_abc.png ./out.png","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"{\\"status\\":\\"ok\\",\\"path\\":\\"./out.png\\",\\"bytes\\":1234567}"}}
 {"type":"turn.completed","usage":{"input_tokens":100000,"cached_input_tokens":80000,"output_tokens":500,"reasoning_output_tokens":50}}`;
 
 test("parseEventStream extracts threadId, toolCalls, agentMessage, usage", () => {

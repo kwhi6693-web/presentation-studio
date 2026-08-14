@@ -87,7 +87,7 @@
 - [ ] B:删 pipeline 死 CSS 或恢复 `__pipeAdvance`
 - [ ] B:`--ink-tint` 未定义引用
 - [ ] B:JS 缓动改读 CSS var
-- [ ] 文档:去除 `/Users/guohao/...` 绝对路径(已完成)
+- [ ] 文档:去除 `个人本地路径` 绝对路径(已完成)
 - [ ] 各模板共有:`file://` 直开时 module 动态 import 本地 `./assets/motion.min.js` 被 Chrome CORS 拦截,实际总是走 jsDelivr CDN;离线 + 直开的组合只能拿到静态降级。共享 runtime 时考虑把 motion 关键函数直接内联进模板,或文档明确"离线演示请起本地 server"
 
 ## 建议排序
