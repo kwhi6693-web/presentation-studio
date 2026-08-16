@@ -448,7 +448,11 @@ class ProjectManager:
         )
         self._run_tool(route.command)
 
-    def _import_url(self, url: str, markdown_path: Path) -> None:
+    def _import_url(
+        self,
+        url: str,
+        markdown_path: Path,
+    ) -> None:
         route = build_conversion_command(
             url,
             markdown_path,
@@ -1194,8 +1198,8 @@ def main(argv: list[str] | None = None) -> int:
                 move=args.move,
                 copy=args.copy,
             )
-            has_usable_import = _has_usable_import(summary)
-            if has_usable_import:
+            import_complete = _has_usable_import(summary)
+            if import_complete:
                 print(f"[OK] Imported sources into: {args.project_path}")
             else:
                 print(
@@ -1234,7 +1238,7 @@ def main(argv: list[str] | None = None) -> int:
                 print("\nSkipped:")
                 for item in summary["skipped"]:
                     print(f"  - {item}")
-            return 0 if has_usable_import else 1
+            return 0 if import_complete else 1
 
         if args.command == "scaffold-spec":
             artifact_path = manager.scaffold_artifact(args.project_path, "design_spec")
