@@ -270,6 +270,41 @@ class CapabilityPreflightTests(unittest.TestCase):
         )
         self.assertEqual(result, {"json": True, "presentation_studio_missing_module": False})
 
+    def test_python_module_probe_isolates_a_missing_dotted_parent(self) -> None:
+        result = PREFLIGHT.python_module_availability(
+            sys.executable, ("json", "missing_parent.missing_child")
+        )
+
+        self.assertEqual(result, {"json": True, "missing_parent.missing_child": False})
+
+    def test_python_module_probe_keeps_json_and_pptx_when_google_genai_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="presentation-studio-python-modules-") as temp:
+            module_root = Path(temp)
+            (module_root / "pptx.py").write_text("AVAILABLE = True\n", encoding="utf-8")
+            (module_root / "google.py").write_text("NOT_A_PACKAGE = True\n", encoding="utf-8")
+            with mock.patch.dict(os.environ, {"PYTHONPATH": str(module_root)}):
+                result = PREFLIGHT.python_module_availability(
+                    sys.executable, ("json", "pptx", "google.genai")
+                )
+
+        self.assertEqual(result, {"json": True, "pptx": True, "google.genai": False})
+
+    def test_full_python_module_probe_preserves_pptx_core_when_google_genai_is_missing(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(prefix="presentation-studio-python-modules-") as temp:
+            module_root = Path(temp)
+            for name in ("pptx", "xlsxwriter", "openpyxl", "PIL", "numpy"):
+                (module_root / f"{name}.py").write_text("AVAILABLE = True\n", encoding="utf-8")
+            (module_root / "google.py").write_text("NOT_A_PACKAGE = True\n", encoding="utf-8")
+            with mock.patch.dict(os.environ, {"PYTHONPATH": str(module_root)}):
+                modules = PREFLIGHT.python_module_availability(
+                    sys.executable, PREFLIGHT.PYTHON_MODULES
+                )
+
+        self.assertFalse(modules["google.genai"])
+        self.assertTrue(PREFLIGHT.summarize_capabilities(modules, {})["python"]["pptx_core"])
+
     def test_node_module_probe_uses_the_explicit_package_root(self) -> None:
         with tempfile.TemporaryDirectory(prefix="presentation-studio-node-modules-") as temp:
             package_root = Path(temp) / "node_modules"

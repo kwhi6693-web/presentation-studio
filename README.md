@@ -80,7 +80,29 @@ Presentation Studio 将四个上游作者项目的优势统一为一个产品层
 
 安装器会在发现目录外完成暂存、文件计数与真实自检；强制更新时，旧版本进入 `.agents/skill-backups/presentation-studio/`，不会再形成重复 Skill。Windows 自定义目标若会超过可移植路径上限，会在写入前明确拒绝。The installers stage, count, and self-check the complete package before activation; forced updates keep the previous version outside the Skill discovery directory, and unsafe deep Windows destinations fail before writes.
 
-也可以下载 [确定性构建包](dist/presentation-studio.zip)，并使用 [checksums.sha256](checksums.sha256) 核对 SHA-256。
+也可以下载 [确定性构建包](dist/presentation-studio.zip)，并使用 [checksums.sha256](checksums.sha256) 核对 SHA-256。仓库内的清单引用 `dist/presentation-studio.zip`，供源码检出目录使用；GitHub Release 则同时提供 `presentation-studio.zip` 和专用的 `presentation-studio.zip.sha256`，两者下载到同一目录后可直接校验：
+
+```bash
+# Linux
+sha256sum -c presentation-studio.zip.sha256
+
+# macOS
+shasum -a 256 -c presentation-studio.zip.sha256
+```
+
+```powershell
+# Windows PowerShell
+$expected = (Get-Content .\presentation-studio.zip.sha256 -Raw).Split()[0].ToLowerInvariant()
+$actual = (Get-FileHash .\presentation-studio.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actual -ne $expected) { throw "SHA-256 mismatch: expected $expected, got $actual" }
+"OK: $actual"
+```
+
+发布者可用纯 Python 标准库生成 Release 专用清单：
+
+```bash
+python scripts/build_release_checksum.py dist/presentation-studio.zip presentation-studio.zip.sha256
+```
 
 仓库验收：
 
@@ -103,13 +125,33 @@ python scripts/upstream_sync.py check --json
 python scripts/upstream_sync.py sync --all --report artifacts/upstream-sync-report.json
 ```
 
-自动同步支持上游事件触发、手动触发和 5 分钟轮询回退。只有来源、稳定版本、路径和许可证均通过校验，并且仓库全部门禁通过时才会提交。操作说明见 [上游持续同步](docs/upstream-sync.md)。
+自动同步支持上游事件触发、手动触发和每小时第 17 分钟轮询回退。只有来源、稳定版本、路径和许可证均通过校验，并且仓库全部门禁通过时，才会向独立自动化分支提交并创建或更新同步 PR；`main` 仍要求 PR 和 `verify` 门禁。操作说明见 [上游持续同步](docs/upstream-sync.md)。
 
 本次真实同步、示例哈希与仓库门禁记录见 [2026-08-13 验收证据](docs/evidence/acceptance-2026-08-13.md)。
 
 ## English Guide
 
 Presentation Studio combines four upstream specialties behind one product-oriented workflow. A complete brief can take the Fast Path for rapid delivery; exact data, format conflicts, animation, narration, multi-engine composition, or high-risk output automatically escalates to the complete workflow.
+
+### Verify a downloaded Release
+
+Download `presentation-studio.zip` and `presentation-studio.zip.sha256` from the same GitHub Release into one directory. The Release checksum asset uses the ZIP basename, so it works directly with standard tools. (`checksums.sha256` is the separate source-checkout manifest and intentionally refers to `dist/presentation-studio.zip`.)
+
+```bash
+# Linux
+sha256sum -c presentation-studio.zip.sha256
+
+# macOS
+shasum -a 256 -c presentation-studio.zip.sha256
+```
+
+```powershell
+# Windows PowerShell
+$expected = (Get-Content .\presentation-studio.zip.sha256 -Raw).Split()[0].ToLowerInvariant()
+$actual = (Get-FileHash .\presentation-studio.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actual -ne $expected) { throw "SHA-256 mismatch: expected $expected, got $actual" }
+"OK: $actual"
+```
 
 ### Major capability layers
 
