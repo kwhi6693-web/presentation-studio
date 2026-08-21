@@ -1,0 +1,80 @@
+name: Bug report / 缺陷报告
+description: Report a reproducible Presentation Studio defect with redacted runtime evidence.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a defect. Remove credentials, private content, and unrelated local paths before submitting. Security vulnerabilities belong in private reporting, not a public Issue.
+  - type: input
+    id: version
+    attributes:
+      label: Release or source commit / 版本或提交
+      description: For example, v1.1.1 or a full commit SHA.
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation path / 安装方式
+      options:
+        - GitHub Release ZIP
+        - Source checkout
+        - Installed Codex Skill
+        - Other verified package
+    validations:
+      required: true
+  - type: input
+    id: operating_system
+    attributes:
+      label: Operating system / 操作系统
+      placeholder: Windows 11, Ubuntu 24.04, macOS 15
+    validations:
+      required: true
+  - type: input
+    id: runtimes
+    attributes:
+      label: Resolved Python and Node versions / 运行时版本
+      description: Include the resolved executable versions, not credentials or full environment dumps.
+    validations:
+      required: true
+  - type: textarea
+    id: preflight
+    attributes:
+      label: Redacted preflight or self-check / 脱敏预检或自检
+      description: Include relevant readiness and module booleans after removing secrets and unrelated absolute paths.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction / 最小复现
+      description: List deterministic steps and the smallest safe input needed to reproduce the defect.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior / 预期行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior / 实际行为
+    validations:
+      required: true
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Safety confirmation / 安全确认
+      options:
+        - label: I removed tokens, passwords, private documents, and unrelated local absolute paths.
+          required: true
+        - label: This report does not publicly disclose an unpatched security vulnerability.
+          required: true
+    validations:
+      required: true

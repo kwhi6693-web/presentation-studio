@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import re
+from collections import Counter
+from pathlib import Path
+from urllib.parse import unquote, urlsplit
+
+
+REQUIRED_COMMUNITY_FILES = (
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "CODE_OF_CONDUCT.md",
+    ".github/CODEOWNERS",
+    ".github/PULL_REQUEST_TEMPLATE.md",
+    ".github/ISSUE_TEMPLATE/bug_report.yml",
+    ".github/ISSUE_TEMPLATE/feature_request.yml",
+    ".github/ISSUE_TEMPLATE/upstream_sync.yml",
+    ".github/ISSUE_TEMPLATE/config.yml",
+)
+
+ISSUE_FORMS = (
+    ".github/ISSUE_TEMPLATE/bug_report.yml",
+    ".github/ISSUE_TEMPLATE/feature_request.yml",
+    ".github/ISSUE_TEMPLATE/upstream_sync.yml",
+)
+
+REVIEWED_ACTIONS = {
+    "actions/checkout": (
+        "3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "v7.0.1",
+    ),
+    "actions/setup-python": (
+        "5fda3b95a4ea91299a34e894583c3862153e4b97",
+        "v7.0.0",
+    ),
+    "actions/upload-artifact": (
+        "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "v7.0.1",
+    ),
+}
+
+EXPECTED_ACTION_COUNTS = {
+    "actions/checkout": 2,
+    "actions/setup-python": 2,
+    "actions/upload-artifact": 1,
+}
+
+MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
+ACTION_RE = re.compile(
+    r"uses:\s*(actions/[A-Za-z0-9_.-]+)@([^\s#]+)(?:\s+#\s+(\S+))?"
+)
+
+
+def validate_repository(root: Path) -> list[str]:
+    root = root.resolve()
+    issues: list[str] = []
+    issues.extend(_validate_required_files(root))
+    issues.extend(_validate_readme_links(root))
+    issues.extend(_validate_issue_forms(root))
+    issues.extend(_validate_actions(root))
+    issues.extend(_validate_dependabot(root))
+    return sorted(set(issues))
+
+
+def _validate_required_files(root: Path) -> list[str]:
+    return [
+        f"missing required community file: {relative_path}"
+        for relative_path in REQUIRED_COMMUNITY_FILES
+        if not (root / relative_path).is_file()
+    ]
+
+
+def _validate_readme_links(root: Path) -> list[str]:
+    readme = root / "README.md"
+    if not readme.is_file():
+        return ["README.md is missing"]
+
+    issues: list[str] = []
+    text = readme.read_text(encoding="utf-8-sig")
+    for raw_target in MARKDOWN_LINK_RE.findall(text):
+        target = raw_target.strip().strip("<>")
+        if target.startswith("#"):
+            continue
+        parsed = urlsplit(target)
+        if parsed.scheme.lower() in {"http", "https", "mailto"} or parsed.netloc:
+            continue
+        relative_path = unquote(parsed.path)
+        if not relative_path:
+            continue
+        resolved = (root / relative_path).resolve()
+        try:
+            resolved.relative_to(root)
+        except ValueError:
+            issues.append(f"README local link escapes repository: {relative_path}")
+            continue
+        if not resolved.exists():
+            issues.append(
+                f"README local link target does not exist: {relative_path}"
+            )
+    return issues
+
+
+def _validate_issue_forms(root: Path) -> list[str]:
+    issues: list[str] = []
+    for relative_path in ISSUE_FORMS:
+        path = root / relative_path
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8-sig")
+        for key in ("name", "description", "body"):
+            if re.search(rf"(?m)^{key}:\s*", text) is None:
+                issues.append(
+                    f"issue form missing top-level {key}: {relative_path}"
+                )
+        if re.search(r"(?m)^\s+validations:\s*$", text) is None:
+            issues.append(f"issue form has no validations: {relative_path}")
+    return issues
+
+
+def _validate_actions(root: Path) -> list[str]:
+    issues: list[str] = []
+    action_counts: Counter[str] = Counter()
+    workflow_root = root / ".github" / "workflows"
+    if not workflow_root.is_dir():
+        return ["GitHub Actions workflow directory is missing"]
+
+    workflow_paths = sorted(workflow_root.glob("*.yml")) + sorted(
+        workflow_root.glob("*.yaml")
+    )
+    for path in workflow_paths:
+        for line in path.read_text(encoding="utf-8-sig").splitlines():
+            if "uses: actions/" not in line:
+                continue
+            match = ACTION_RE.search(line)
+            if match is None:
+                reference = line.split("uses:", 1)[1].strip()
+                issues.append(
+                    "official action is not pinned to a full reviewed commit: "
+                    f"{reference}"
+                )
+                continue
+            action, revision, comment = match.groups()
+            action_counts[action] += 1
+            if re.fullmatch(r"[0-9a-f]{40}", revision) is None:
+                issues.append(
+                    "official action is not pinned to a full reviewed commit: "
+                    f"{action}@{revision}"
+                )
+                continue
+            expected = REVIEWED_ACTIONS.get(action)
+            if expected is None:
+                issues.append(f"official action is not approved: {action}")
+                continue
+            expected_revision, expected_comment = expected
+            if revision != expected_revision or comment != expected_comment:
+                rendered_comment = f" # {comment}" if comment else ""
+                issues.append(
+                    "official action pin does not match reviewed release: "
+                    f"{action}@{revision}{rendered_comment}"
+                )
+    for action, expected_count in EXPECTED_ACTION_COUNTS.items():
+        actual_count = action_counts[action]
+        if actual_count != expected_count:
+            issues.append(
+                "reviewed action usage count mismatch: "
+                f"{action} expected {expected_count} got {actual_count}"
+            )
+    return issues
+
+
+def _validate_dependabot(root: Path) -> list[str]:
+    path = root / ".github" / "dependabot.yml"
+    if not path.is_file():
+        return ["Dependabot configuration is missing"]
+
+    text = path.read_text(encoding="utf-8-sig")
+    ecosystems = re.findall(
+        r'(?m)^\s*-?\s*package-ecosystem:\s*["\']?([^"\'\s]+)', text
+    )
+    issues: list[str] = []
+    if ecosystems != ["github-actions"]:
+        issues.append("Dependabot may update github-actions only")
+
+    required_terms = {
+        'directory: "/"': "Dependabot github-actions directory must be repository root",
+        'interval: "weekly"': "Dependabot github-actions interval must be weekly",
+        "open-pull-requests-limit: 3": "Dependabot open pull request limit must be 3",
+        'prefix: "ci"': "Dependabot commit prefix must be ci",
+    }
+    for term, issue in required_terms.items():
+        if term not in text:
+            issues.append(issue)
+    return issues
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Verify repository health contracts")
+    parser.add_argument(
+        "--root",
+        type=Path,
+        default=Path(__file__).resolve().parents[1],
+        help="repository root (defaults to the script's parent repository)",
+    )
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    root = args.root.resolve()
+    issues = validate_repository(root)
+    payload = {
+        "status": "PASS" if not issues else "FAIL",
+        "root": str(root),
+        "issues": issues,
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0 if not issues else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
