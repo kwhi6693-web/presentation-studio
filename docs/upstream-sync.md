@@ -36,9 +36,9 @@ GitHub scheduled workflows are best-effort and may be delayed under load. Theref
 6. Copy only allowlisted paths and restore Presentation Studio-owned adapters.
 7. Update source-lock and engine metadata atomically.
 8. Run unit tests, example verification, deterministic package build, archive verification, and repository checks.
-9. Commit and push only if all gates pass and an actual vendored change exists.
+9. If all gates pass and an actual vendored change exists, commit it to a unique `automation/sync-stable-upstreams-*` branch and open a pull request against `main`.
 
-The transaction is fail-closed: a download, archive, path, license, test, packaging, or validation failure prevents all automated commits. The diagnostic report is uploaded as an Actions artifact.
+The transaction is fail-closed: a download, archive, path, license, test, packaging, or validation failure prevents any automated branch push or pull request. An existing open synchronization pull request suppresses duplicates. The diagnostic report is uploaded as an Actions artifact, and the repository ruleset requires the pull request's `verify` check before merge.
 
 ## Commands
 
@@ -71,7 +71,7 @@ python scripts/verify_package.py
 
 ## Event relay
 
-The upstream release relay calls the repository dispatch endpoint with event type `upstream_release`. Store the target repository token only in the relay platform; do not commit it to this repository. The target workflow uses the repository-scoped `GITHUB_TOKEN` and declares only `contents: write`.
+The upstream release relay calls the repository dispatch endpoint with event type `upstream_release`. Store the target repository token only in the relay platform; do not commit it to this repository. The target workflow uses the repository-scoped `GITHUB_TOKEN` and declares `contents: write` plus `pull-requests: write`, which are required to push the isolated automation branch and open its pull request. It cannot bypass the `main` ruleset.
 
 Example event body:
 

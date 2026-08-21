@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: upstream-release-sync
@@ -51,14 +52,33 @@ jobs:
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
-      - name: Commit and push synchronized sources
+      - name: Open a pull request for synchronized sources
         if: steps.changes.outputs.changed == 'true'
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+          existing_pr="$(
+            gh pr list --state open --base main --json headRefName,url \
+              --jq 'map(select(.headRefName | startswith("automation/sync-stable-upstreams-"))) | first | .url // ""'
+          )"
+          if [[ -n "$existing_pr" ]]; then
+            echo "::notice::Verified upstream changes are already represented by $existing_pr"
+            exit 0
+          fi
+
+          sync_branch="automation/sync-stable-upstreams-${GITHUB_RUN_ID}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$sync_branch"
           git commit -m "chore: sync stable upstream releases"
-          git push
+          git push --set-upstream origin "$sync_branch"
+          gh pr create \
+            --base main \
+            --head "$sync_branch" \
+            --title "chore: sync stable upstream releases" \
+            --body "Automated verified update from workflow run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
       - name: Upload synchronization report
         if: always()
         uses: actions/upload-artifact@v4

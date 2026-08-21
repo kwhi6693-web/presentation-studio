@@ -104,6 +104,22 @@ class RepositoryContractTests(unittest.TestCase):
             with self.subTest(term=term):
                 self.assertTrue(term in workflow, f"Sync workflow is missing: {term}")
 
+    def test_sync_workflow_routes_verified_changes_through_a_pull_request(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "sync-upstreams.yml").read_text(
+            encoding="utf-8"
+        )
+
+        for term in (
+            "pull-requests: write",
+            'sync_branch="automation/sync-stable-upstreams-${GITHUB_RUN_ID}"',
+            'git push --set-upstream origin "$sync_branch"',
+            "gh pr create",
+            "--base main",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, workflow)
+        self.assertNotIn("          git push\n", workflow)
+
     def test_source_lock_declares_stable_update_policy(self) -> None:
         lock_path = ROOT / "presentation-studio" / "source-lock.json"
         payload = json.loads(lock_path.read_text(encoding="utf-8-sig"))
