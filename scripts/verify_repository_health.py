@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from collections import Counter
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
@@ -39,6 +40,12 @@ REVIEWED_ACTIONS = {
         "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
         "v7.0.1",
     ),
+}
+
+EXPECTED_ACTION_COUNTS = {
+    "actions/checkout": 2,
+    "actions/setup-python": 2,
+    "actions/upload-artifact": 1,
 }
 
 MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
@@ -115,6 +122,7 @@ def _validate_issue_forms(root: Path) -> list[str]:
 
 def _validate_actions(root: Path) -> list[str]:
     issues: list[str] = []
+    action_counts: Counter[str] = Counter()
     workflow_root = root / ".github" / "workflows"
     if not workflow_root.is_dir():
         return ["GitHub Actions workflow directory is missing"]
@@ -135,6 +143,7 @@ def _validate_actions(root: Path) -> list[str]:
                 )
                 continue
             action, revision, comment = match.groups()
+            action_counts[action] += 1
             if re.fullmatch(r"[0-9a-f]{40}", revision) is None:
                 issues.append(
                     "official action is not pinned to a full reviewed commit: "
@@ -152,6 +161,13 @@ def _validate_actions(root: Path) -> list[str]:
                     "official action pin does not match reviewed release: "
                     f"{action}@{revision}{rendered_comment}"
                 )
+    for action, expected_count in EXPECTED_ACTION_COUNTS.items():
+        actual_count = action_counts[action]
+        if actual_count != expected_count:
+            issues.append(
+                "reviewed action usage count mismatch: "
+                f"{action} expected {expected_count} got {actual_count}"
+            )
     return issues
 
 

@@ -77,6 +77,98 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             )
             self.assertIn("Dependabot may update github-actions only", issues)
 
+    @unittest.skipIf(health is None, "repository health verifier is missing")
+    def test_missing_required_action_usage_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_complete_repository(root)
+            sync_workflow = root / ".github" / "workflows" / "sync-upstreams.yml"
+            text = sync_workflow.read_text(encoding="utf-8")
+            text = "\n".join(
+                line for line in text.splitlines() if "actions/setup-python@" not in line
+            )
+            sync_workflow.write_text(text + "\n", encoding="utf-8")
+
+            issues = health.validate_repository(root)
+
+            self.assertIn(
+                "reviewed action usage count mismatch: "
+                "actions/setup-python expected 2 got 1",
+                issues,
+            )
+
+    @unittest.skipIf(health is None, "repository health verifier is missing")
+    def test_wrong_action_sha_and_missing_release_comment_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_complete_repository(root)
+            workflow = root / ".github" / "workflows" / "validate.yml"
+            text = workflow.read_text(encoding="utf-8")
+            text = text.replace(
+                "3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+                "0000000000000000000000000000000000000000 # v7.0.1",
+            ).replace(
+                "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0",
+                "5fda3b95a4ea91299a34e894583c3862153e4b97",
+            )
+            workflow.write_text(text, encoding="utf-8")
+
+            issues = health.validate_repository(root)
+
+            self.assertIn(
+                "official action pin does not match reviewed release: "
+                "actions/checkout@0000000000000000000000000000000000000000 "
+                "# v7.0.1",
+                issues,
+            )
+            self.assertIn(
+                "official action pin does not match reviewed release: "
+                "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+                issues,
+            )
+
+    @unittest.skipIf(health is None, "repository health verifier is missing")
+    def test_dependabot_second_ecosystem_and_wrong_schedule_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_complete_repository(root)
+            dependabot = root / ".github" / "dependabot.yml"
+            text = dependabot.read_text(encoding="utf-8").replace(
+                'interval: "weekly"', 'interval: "daily"'
+            )
+            text += '  - package-ecosystem: "npm"\n    directory: "/"\n'
+            dependabot.write_text(text, encoding="utf-8")
+
+            issues = health.validate_repository(root)
+
+            self.assertIn("Dependabot may update github-actions only", issues)
+            self.assertIn(
+                "Dependabot github-actions interval must be weekly", issues
+            )
+
+    @unittest.skipIf(health is None, "repository health verifier is missing")
+    def test_issue_form_without_validations_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_complete_repository(root)
+            issue_form = root / ".github" / "ISSUE_TEMPLATE" / "bug_report.yml"
+            issue_form.write_text(
+                "name: Bug\n"
+                "description: Details\n"
+                "body:\n"
+                "  - type: textarea\n"
+                "    id: details\n",
+                encoding="utf-8",
+            )
+
+            issues = health.validate_repository(root)
+
+            self.assertIn(
+                "issue form has no validations: "
+                ".github/ISSUE_TEMPLATE/bug_report.yml",
+                issues,
+            )
+
     def _write_complete_repository(self, root: Path) -> None:
         (root / "docs").mkdir(parents=True)
         (root / "docs" / "guide.md").write_text("# Guide\n", encoding="utf-8")
@@ -130,6 +222,10 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
         )
         (workflows / "sync-upstreams.yml").write_text(
             "steps:\n"
+            "  - uses: actions/checkout@"
+            "3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n"
+            "  - uses: actions/setup-python@"
+            "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0\n"
             "  - uses: actions/upload-artifact@"
             "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1\n",
             encoding="utf-8",
