@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import io
 import json
 import tempfile
 import unittest
+import urllib.error
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from scripts.upstream_sync import (
+    GitHubClient,
     ImportRule,
     ReleaseInfo,
     SourceConfig,
@@ -35,6 +39,195 @@ class FakeClient:
         if path not in self.responses:
             raise AssertionError(f"Unexpected GitHub API path: {path}")
         return self.responses[path]
+
+
+class JsonResponse(io.BytesIO):
+    def __enter__(self) -> "JsonResponse":
+        return self
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
+        self.close()
+
+
+class CloseFailureResponse:
+    def __init__(self, payload: bytes) -> None:
+        self._stream = io.BytesIO(payload)
+
+    def __enter__(self) -> io.BytesIO:
+        return self._stream
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
+        self._stream.close()
+        raise OSError("socket close failed")
+
+
+def http_error(status: int, retry_after: str | None = None) -> urllib.error.HTTPError:
+    headers = {} if retry_after is None else {"Retry-After": retry_after}
+    return urllib.error.HTTPError(
+        "https://api.github.com/test", status, "fixture error", headers, io.BytesIO()
+    )
+
+
+class GitHubClientRetryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.source = SourceConfig(
+            name="sample",
+            owner="author",
+            repository_name="skill",
+            repository="https://github.com/author/skill.git",
+            expected_license="MIT",
+            imports=(),
+            preserve=(),
+        )
+
+    def test_retries_release_discovery_404_then_returns_response(self) -> None:
+        sleeps: list[float] = []
+        client = GitHubClient(sleeper=sleeps.append)
+        with patch(
+            "scripts.upstream_sync.urllib.request.urlopen",
+            side_effect=[http_error(404), JsonResponse(b'{"tag_name": "v1.2.3"}')],
+        ) as urlopen:
+            payload = client.get_json("/repos/author/skill/releases/latest")
+
+        self.assertEqual(payload, {"tag_name": "v1.2.3"})
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(sleeps, [1.0])
+
+    def test_retries_rate_limit_and_server_errors_with_capped_backoff(self) -> None:
+        sleeps: list[float] = []
+        client = GitHubClient(sleeper=sleeps.append)
+        with patch(
+            "scripts.upstream_sync.urllib.request.urlopen",
+            side_effect=[
+                http_error(429, retry_after="999"),
+                http_error(500),
+                JsonResponse(b'{"status": "ahead"}'),
+            ],
+        ) as urlopen:
+            payload = client.get_json("/repos/author/skill/compare/base...head")
+
+        self.assertEqual(payload, {"status": "ahead"})
+        self.assertEqual(urlopen.call_count, 3)
+        self.assertEqual(sleeps, [5.0, 2.0])
+
+    def test_respects_retry_after_on_a_retryable_server_error(self) -> None:
+        sleeps: list[float] = []
+        client = GitHubClient(sleeper=sleeps.append)
+        with patch(
+            "scripts.upstream_sync.urllib.request.urlopen",
+            side_effect=[http_error(503, retry_after="3"), JsonResponse(b'{"ok": true}')],
+        ):
+            payload = client.get_json("/repos/author/skill/releases/latest")
+
+        self.assertEqual(payload, {"ok": True})
+        self.assertEqual(sleeps, [3.0])
+
+    def test_retries_transient_transport_error_then_returns_response(self) -> None:
+        sleeps: list[float] = []
+        client = GitHubClient(sleeper=sleeps.append)
+        with patch(
+            "scripts.upstream_sync.urllib.request.urlopen",
+            side_effect=[urllib.error.URLError("temporary DNS failure"), JsonResponse(b'{"ok": true}')],
+        ) as urlopen:
+            payload = client.get_json("/repos/author/skill/releases/latest")
+
+        self.assertEqual(payload, {"ok": True})
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(sleeps, [1.0])
+
+    def test_retries_invalid_utf8_json_then_returns_response(self) -> None:
+        sleeps: list[float] = []
+        client = GitHubClient(sleeper=sleeps.append)
+        with patch(
+            "scripts.upstream_sync.urllib.request.urlopen",
+            side_effect=[JsonResponse(b"\xff"), JsonResponse(b'{"ok": true}')],
+        ) as urlopen:
+            payload = client.get_json("/repos/author/skill/releases/latest")
+
+        self.assertEqual(payload, {"ok": True})
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(sleeps, [1.0])
+
+    def test_exhausted_invalid_utf8_discovery_error_is_redacted_and_contextual(self) -> None:
+        sleeps: list[float] = []
+        client = GitHubClient(sleeper=sleeps.append)
+        with patch(
+            "scripts.upstream_sync.urllib.request.urlopen",
+            side_effect=lambda *args, **kwargs: JsonResponse(b"\xff"),
+        ) as urlopen, self.assertRaisesRegex(
+            SyncError,
+            r"source sample; discover latest release; terminal invalid JSON response after 3 attempts",
+        ):
+            discover_latest_release(self.source, client)
+
+        self.assertEqual(urlopen.call_count, 3)
+        self.assertEqual(sleeps, [1.0, 2.0])
+
+    def test_retries_response_close_error_then_returns_response(self) -> None:
+        sleeps: list[float] = []
+        client = GitHubClient(sleeper=sleeps.append)
+        with patch(
+            "scripts.upstream_sync.urllib.request.urlopen",
+            side_effect=[CloseFailureResponse(b'{"ok": true}'), JsonResponse(b'{"ok": true}')],
+        ) as urlopen:
+            payload = client.get_json("/repos/author/skill/releases/latest")
+
+        self.assertEqual(payload, {"ok": True})
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(sleeps, [1.0])
+
+    def test_exhausted_close_error_is_a_contextual_transport_failure(self) -> None:
+        sleeps: list[float] = []
+        client = GitHubClient(sleeper=sleeps.append)
+        with patch(
+            "scripts.upstream_sync.urllib.request.urlopen",
+            side_effect=lambda *args, **kwargs: CloseFailureResponse(b'{"ok": true}'),
+        ) as urlopen, self.assertRaisesRegex(
+            SyncError,
+            r"source sample; discover latest release; terminal transport error after 3 attempts",
+        ):
+            discover_latest_release(self.source, client)
+
+        self.assertEqual(urlopen.call_count, 3)
+        self.assertEqual(sleeps, [1.0, 2.0])
+
+    def test_does_not_retry_an_ordinary_not_found_response(self) -> None:
+        sleeps: list[float] = []
+        client = GitHubClient(sleeper=sleeps.append)
+        with patch(
+            "scripts.upstream_sync.urllib.request.urlopen", side_effect=http_error(404)
+        ) as urlopen, self.assertRaisesRegex(
+            SyncError, r"terminal HTTP 404 after 1 attempt"
+        ):
+            client.get_json("/repos/author/skill/compare/base...head")
+
+        self.assertEqual(urlopen.call_count, 1)
+        self.assertEqual(sleeps, [])
+
+    def test_exhausted_discovery_error_names_source_and_operation(self) -> None:
+        sleeps: list[float] = []
+        client = GitHubClient(sleeper=sleeps.append)
+        with patch(
+            "scripts.upstream_sync.urllib.request.urlopen", side_effect=[http_error(500)] * 3
+        ) as urlopen, self.assertRaisesRegex(
+            SyncError, r"source sample; discover latest release; terminal HTTP 500 after 3 attempts"
+        ):
+            discover_latest_release(self.source, client)
+
+        self.assertEqual(urlopen.call_count, 3)
+        self.assertEqual(sleeps, [1.0, 2.0])
+
+    def test_malformed_release_metadata_is_not_retried(self) -> None:
+        sleeps: list[float] = []
+        client = GitHubClient(sleeper=sleeps.append)
+        with patch(
+            "scripts.upstream_sync.urllib.request.urlopen",
+            return_value=JsonResponse(b'{"tag_name": ""}'),
+        ) as urlopen, self.assertRaisesRegex(SyncError, r"has no tag"):
+            discover_latest_release(self.source, client)
+
+        self.assertEqual(urlopen.call_count, 1)
+        self.assertEqual(sleeps, [])
 
 
 class ReleaseDiscoveryTests(unittest.TestCase):

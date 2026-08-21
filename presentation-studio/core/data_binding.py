@@ -84,6 +84,11 @@ class EnginePayload:
             for field in self.manifest.fields
         )
 
+    @property
+    def provenance(self) -> str:
+        """The source provenance carried by the manifest supplied to the engine."""
+        return self.manifest.provenance
+
 
 @dataclass(frozen=True)
 class DataBinding:
@@ -135,6 +140,7 @@ _PRODUCT_BINDING_CONTRACTS = {
 def build_data_manifest(raw: dict[str, Any]) -> DataManifest:
     if type(raw) is not dict:
         raise ValueError("manifest: must be an object")
+    _validate_finite_json(raw, "manifest")
     source = _required_text(raw, "source")
     source_form = _required_text(raw, "source_form")
     if source_form not in _SUPPORTED_SOURCE_FORMS:
@@ -466,6 +472,7 @@ def validate_data_bindings(bindings: tuple[DataBinding, ...]) -> None:
 def build_observed_contract(raw: dict[str, Any]) -> ObservedDataContract:
     if type(raw) is not dict:
         raise ValueError("observed contract: must be an object")
+    _validate_finite_json(raw, "observed contract")
     return ObservedDataContract(
         source=raw.get("source"),
         source_form=raw.get("source_form"),
@@ -488,6 +495,19 @@ def compare_bound_values(
         if type(observed) is ObservedDataContract
         else build_observed_contract(observed)
     )
+    _validate_finite_json(
+        {
+            "source": contract.source,
+            "source_form": contract.source_form,
+            "provenance": contract.provenance,
+            "fields": contract.fields,
+            "transformations": contract.transformations,
+            "findings": contract.findings,
+            "record_ids": contract.record_ids,
+            "duplicate_record_ids": contract.duplicate_record_ids,
+        },
+        "observed contract",
+    )
     mismatches: list[str] = []
     for key, expected, actual in (
         ("source", manifest.source, contract.source),
@@ -509,6 +529,59 @@ def compare_bound_values(
     _compare_transformations(manifest.transformations, contract.transformations, mismatches)
     status = "FAIL" if mismatches else ("PARTIAL" if manifest.findings else "PASS")
     return DataFidelityReport(status, tuple(mismatches), manifest.findings)
+
+
+def engine_payload_evidence(payload: EnginePayload) -> dict[str, Any]:
+    """Return the JSON-safe evidence a renderer must echo for an exact binding."""
+    validate_engine_payload(payload)
+    return {
+        "product_id": payload.product_id,
+        "engine": payload.engine,
+        "target_types": list(payload.target_types),
+        "render_mode": payload.render_mode,
+        "manual_redraw_allowed": payload.manual_redraw_allowed,
+        "provenance": payload.provenance,
+        "labels": list(payload.labels),
+        "binding_targets": [
+            {"field": field_name, "target_type": target_type}
+            for field_name, target_type in payload.binding_targets
+        ],
+    }
+
+
+def validate_engine_payload_evidence(
+    manifest: DataManifest, evidence: dict[str, Any]
+) -> tuple[str, ...]:
+    """Compare renderer evidence with the one payload derived from *manifest*.
+
+    This reuses the established exact-value primitive used by
+    ``compare_bound_values`` rather than introducing a second equality policy.
+    """
+    validate_data_manifest(manifest)
+    if type(evidence) is not dict:
+        return ("engine_payload: expected an object",)
+    _validate_finite_json(evidence, "engine_payload")
+    product_id = evidence.get("product_id")
+    if type(product_id) is not str:
+        return ("engine_payload.product_id: expected an exact string",)
+    try:
+        expected = engine_payload_evidence(build_engine_payload(manifest, product_id))
+    except ValueError as exc:
+        return (f"engine_payload.product_id: {exc}",)
+    mismatches: list[str] = []
+    expected_keys = tuple(expected)
+    if set(evidence) != set(expected_keys):
+        mismatches.append(
+            "engine_payload.keys: expected "
+            f"{list(expected_keys)!r}, observed {sorted(evidence)!r}"
+        )
+    for key in expected_keys:
+        actual = evidence.get(key)
+        if not _exact_value_equal(expected[key], actual):
+            mismatches.append(
+                f"engine_payload.{key}: expected {expected[key]!r}, observed {actual!r}"
+            )
+    return tuple(mismatches)
 
 
 def _required_text(raw: dict[str, Any], key: str, prefix: str = "") -> str:
@@ -574,6 +647,8 @@ def _validate_values(value_type: str, values: list[Any], path: str) -> None:
             continue
         if value_type == "number" and type(value) not in (int, float):
             raise ValueError(f"{path}.values[{index}]: must be an integer, float, or null")
+        if type(value) is float and not math.isfinite(value):
+            raise ValueError(f"{path}.values[{index}]: must be finite")
         if value_type == "string" and type(value) is not str:
             raise ValueError(f"{path}.values[{index}]: must be a string or null")
 
@@ -734,3 +809,20 @@ def _exact_value_equal(expected: Any, actual: Any) -> bool:
             _exact_value_equal(expected[key], actual[key]) for key in expected
         )
     return expected == actual
+
+
+def _validate_finite_json(value: Any, path: str) -> None:
+    """Reject NaN and infinities anywhere a JSON contract can carry a number."""
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise ValueError(f"{path}: non-finite numbers are not allowed")
+        return
+    if type(value) in (list, tuple):
+        for index, item in enumerate(value):
+            _validate_finite_json(item, f"{path}[{index}]")
+        return
+    if type(value) is dict:
+        for key, item in value.items():
+            _validate_finite_json(key, f"{path}.<key>")
+            child_path = f"{path}.{key}" if type(key) is str else f"{path}[{key!r}]"
+            _validate_finite_json(item, child_path)

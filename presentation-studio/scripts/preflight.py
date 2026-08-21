@@ -51,6 +51,38 @@ NODE_MODULES = (
     "linkedom",
     "turndown",
 )
+CAPABILITY_PREREQUISITES = {
+    "pptx_core": ("python", "pptx_core"),
+    "baoyu_core": ("node", "baoyu_core"),
+}
+_PYTHON_PROBE_ARGS = (
+    "-c",
+    "import sys;sys.stdout.buffer.write(b'presentation-studio-python-probe\\n')",
+)
+_NODE_PROBE_ARGS = (
+    "-e",
+    "process.stdout.write('presentation-studio-node-probe\\n')",
+)
+_PYTHON_PROBE_MARKER = b"presentation-studio-python-probe\n"
+_NODE_PROBE_MARKER = b"presentation-studio-node-probe\n"
+_CHROMIUM_PROBE_MARKER = "PRESENTATION_STUDIO_CHROMIUM_OK"
+_CHROMIUM_PROBE_TITLE = "presentation-studio-probe"
+_CHROMIUM_PROBE_SCRIPT = (
+    "const executablePath=process.argv[1];"
+    "(async()=>{let browser;try{"
+    "const{chromium}=require('playwright');"
+    "browser=await chromium.launch({executablePath,headless:true,args:["
+    "'--no-first-run','--no-default-browser-check','--disable-background-networking',"
+    "'--disable-component-update']});"
+    "const page=await browser.newPage();"
+    "await page.setContent('<!doctype html><title>presentation-studio-probe</title>',"
+    "{waitUntil:'load'});"
+    "const title=await page.title();"
+    "process.stdout.write(JSON.stringify({"
+    "marker:'PRESENTATION_STUDIO_CHROMIUM_OK',title,version:browser.version()}));"
+    "}finally{if(browser)await browser.close();}})().catch(error=>{"
+    "process.stderr.write(String(error&&error.message||error));process.exitCode=1;});"
+)
 
 
 def provider_availability(env: dict[str, str]) -> dict[str, bool]:
@@ -63,24 +95,167 @@ def provider_availability(env: dict[str, str]) -> dict[str, bool]:
     return result
 
 
-def safe_executable_available(value: str | None) -> bool:
+def _safe_executable_path(value: str | None) -> Path | None:
     if value is None:
-        return False
+        return None
     path = Path(value)
-    return (
+    if not (
         path.is_absolute()
         and "windowsapps" not in {part.lower() for part in path.parts}
         and path.is_file()
+    ):
+        return None
+    return path
+
+
+def probe_executable(value: str | None, version_args: tuple[str, ...] = ("--version",)) -> bool:
+    path = _safe_executable_path(value)
+    if path is None:
+        return False
+    try:
+        completed = subprocess.run(
+            [str(path), *version_args],
+            check=False,
+            shell=False,
+            capture_output=True,
+            text=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError, UnicodeError):
+        return False
+    return completed.returncode == 0
+
+
+def _probe_runtime(value: str | None, args: tuple[str, ...], marker: bytes) -> bool:
+    path = _safe_executable_path(value)
+    if path is None:
+        return False
+    try:
+        completed = subprocess.run(
+            [str(path), *args],
+            check=False,
+            shell=False,
+            capture_output=True,
+            text=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError, UnicodeError):
+        return False
+    return completed.returncode == 0 and completed.stdout == marker
+
+
+def probe_python_executable(value: str | None) -> bool:
+    return _probe_runtime(value, _PYTHON_PROBE_ARGS, _PYTHON_PROBE_MARKER)
+
+
+def probe_node_executable(value: str | None) -> bool:
+    return _probe_runtime(value, _NODE_PROBE_ARGS, _NODE_PROBE_MARKER)
+
+
+def safe_executable_available(value: str | None) -> bool:
+    return probe_executable(value)
+
+
+def probe_chromium(
+    value: str | None,
+    node_executable: str,
+    package_root: Path | None,
+    playwright_available: bool,
+) -> dict[str, object]:
+    evidence: dict[str, object] = {
+        "probe": "playwright_local_render",
+        "configured": value is not None,
+        "playwright_available": playwright_available,
+    }
+    if value is None:
+        return {"available": False, "state": "unknown", "evidence": evidence}
+    chromium_path = _safe_executable_path(value)
+    if chromium_path is None:
+        evidence["executable_valid"] = False
+        return {"available": False, "state": "unavailable", "evidence": evidence}
+    evidence["executable_valid"] = True
+    if (
+        not playwright_available
+        or _safe_executable_path(node_executable) is None
+        or package_root is None
+        or not package_root.is_dir()
+    ):
+        return {"available": False, "state": "unknown", "evidence": evidence}
+
+    env = dict(os.environ)
+    env["NODE_PATH"] = os.pathsep.join(
+        part for part in (str(package_root.resolve()), env.get("NODE_PATH", "")) if part
     )
+    command = [node_executable, "-e", _CHROMIUM_PROBE_SCRIPT, str(chromium_path)]
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            shell=False,
+            capture_output=True,
+            text=False,
+            timeout=15,
+            env=env,
+        )
+    except subprocess.TimeoutExpired:
+        evidence["reason"] = "probe_timeout"
+        return {"available": False, "state": "unknown", "evidence": evidence}
+    except (OSError, subprocess.SubprocessError, UnicodeError):
+        evidence["reason"] = "probe_error"
+        return {"available": False, "state": "unknown", "evidence": evidence}
+    if completed.returncode != 0:
+        evidence["reason"] = "launch_failed"
+        return {"available": False, "state": "unavailable", "evidence": evidence}
+    try:
+        payload = json.loads(completed.stdout.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError):
+        evidence["reason"] = "invalid_response"
+        return {"available": False, "state": "unavailable", "evidence": evidence}
+    version = payload.get("version") if type(payload) is dict else None
+    if not (
+        type(payload) is dict
+        and payload.get("marker") == _CHROMIUM_PROBE_MARKER
+        and payload.get("title") == _CHROMIUM_PROBE_TITLE
+        and type(version) is str
+        and bool(version)
+    ):
+        evidence["reason"] = "invalid_response"
+        return {"available": False, "state": "unavailable", "evidence": evidence}
+    evidence.update(
+        {
+            "launch_succeeded": True,
+            "local_render_succeeded": True,
+            "version": version,
+        }
+    )
+    return {"available": True, "state": "available", "evidence": evidence}
 
 
-def python_module_availability(names: tuple[str, ...]) -> dict[str, bool]:
-    result: dict[str, bool] = {}
-    for name in names:
-        try:
-            result[name] = importlib.util.find_spec(name) is not None
-        except (ImportError, ModuleNotFoundError, ValueError):
-            result[name] = False
+def python_module_availability(
+    python_executable: str,
+    names: tuple[str, ...],
+) -> dict[str, bool]:
+    result = {name: False for name in names}
+    if _safe_executable_path(python_executable) is None:
+        return result
+    script = (
+        "import importlib.util,json,sys;names=json.loads(sys.argv[1]);"
+        "print(json.dumps({name:importlib.util.find_spec(name) is not None for name in names}))"
+    )
+    try:
+        completed = subprocess.run(
+            [python_executable, "-c", script, json.dumps(names)],
+            check=False,
+            shell=False,
+            capture_output=True,
+            text=False,
+            timeout=5,
+        )
+        if completed.returncode == 0:
+            payload = json.loads(completed.stdout.decode("utf-8"))
+            return {name: bool(payload.get(name)) for name in names}
+    except (OSError, subprocess.SubprocessError, UnicodeError, json.JSONDecodeError):
+        pass
     return result
 
 
@@ -90,7 +265,7 @@ def node_module_availability(
     names: tuple[str, ...],
 ) -> dict[str, bool]:
     result = {name: False for name in names}
-    if not safe_executable_available(node_executable):
+    if not probe_node_executable(node_executable):
         return result
     package_root = package_root.resolve()
     if not package_root.is_dir():
@@ -108,15 +283,16 @@ def node_module_availability(
         completed = subprocess.run(
             [node_executable, "-e", script, json.dumps(names)],
             check=False,
+            shell=False,
             capture_output=True,
-            text=True,
+            text=False,
             timeout=20,
             env=env,
         )
         if completed.returncode == 0:
-            payload = json.loads(completed.stdout)
+            payload = json.loads(completed.stdout.decode("utf-8"))
             return {name: bool(payload.get(name)) for name in names}
-    except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+    except (OSError, subprocess.SubprocessError, UnicodeError, json.JSONDecodeError):
         pass
     return result
 
@@ -169,23 +345,71 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--office-renderer")
     parser.add_argument("--chromium")
     args = parser.parse_args(argv)
-    runtimes = {
-        "python": safe_executable_available(args.python),
-        "node": safe_executable_available(args.node),
+    runtime_inputs = {
+        "python": args.python,
+        "node": args.node,
+        "office_renderer": args.office_renderer,
+        "chromium": args.chromium,
+    }
+    runtimes: dict[str, bool] = {
+        "python": probe_python_executable(args.python),
+        "node": probe_node_executable(args.node),
         "office_renderer": safe_executable_available(args.office_renderer),
-        "chromium": safe_executable_available(args.chromium),
+        "chromium": False,
     }
     providers = provider_availability(dict(os.environ))
-    python_modules = python_module_availability(PYTHON_MODULES)
+    python_modules = (
+        python_module_availability(args.python, PYTHON_MODULES)
+        if runtimes["python"]
+        else {name: False for name in PYTHON_MODULES}
+    )
     node_package_root = resolve_node_modules(args.node, args.node_modules)
     node_modules = (
         node_module_availability(args.node, node_package_root, NODE_MODULES)
         if node_package_root
         else {name: False for name in NODE_MODULES}
     )
+    chromium_probe = probe_chromium(
+        args.chromium,
+        args.node,
+        node_package_root,
+        node_modules.get("playwright", False),
+    )
+    runtimes["chromium"] = bool(chromium_probe["available"])
     capabilities = summarize_capabilities(python_modules, node_modules)
     capabilities["node"]["browser_qa"] = capabilities["node"]["browser_qa"] and runtimes["chromium"]
     required_runtimes = (runtimes["python"], runtimes["node"])
+    provider_credentials_present = any(providers.values())
+    capability_readiness = {
+        prerequisite: runtimes[runtime] and capabilities[runtime][capability]
+        for prerequisite, (runtime, capability) in CAPABILITY_PREREQUISITES.items()
+    }
+    readiness_detail = {
+        name: {
+            "state": (
+                "available" if runtimes[name] else "unknown" if value is None else "unavailable"
+            ),
+            "evidence": {
+                "runtime_probe": runtimes[name],
+                **({"capabilities": capabilities[name]} if name in capabilities else {}),
+            },
+        }
+        for name, value in runtime_inputs.items()
+    }
+    readiness_detail["chromium"] = {
+        "state": chromium_probe["state"],
+        "evidence": chromium_probe["evidence"],
+    }
+    readiness_detail["image_provider"] = {
+        "state": "available" if provider_credentials_present else "unavailable",
+        "credentials_present": provider_credentials_present,
+    }
+    for prerequisite, (runtime, capability) in CAPABILITY_PREREQUISITES.items():
+        ready = capability_readiness[prerequisite]
+        readiness_detail[prerequisite] = {
+            "state": "available" if ready else "unavailable",
+            "evidence": {"runtime": runtime, "capability": capability},
+        }
     result = {
         "status": "PASS" if all(required_runtimes) else "FAIL",
         "runtimes": runtimes,
@@ -202,10 +426,12 @@ def main(argv: list[str] | None = None) -> int:
             "node": runtimes["node"],
             "office_renderer": runtimes["office_renderer"],
             "chromium": runtimes["chromium"],
-            "image_provider": any(providers.values()),
+            "image_provider": provider_credentials_present,
+            **capability_readiness,
         },
+        "readiness_detail": readiness_detail,
         "notes": [
-            "Provider values are redacted; booleans indicate credential presence only.",
+            "Provider values are redacted; credentials_present indicates credential presence only.",
             "Optional capability booleans report module availability without installing packages.",
         ],
     }

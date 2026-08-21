@@ -18,6 +18,10 @@ _KIND_CAPABILITIES = {
 }
 
 
+def _supports_catalog_mode(product: dict[str, Any], field: str, use_case: str) -> bool:
+    return bool(product.get(field, use_case in product["intended_uses"]))
+
+
 @dataclass(frozen=True)
 class RoutePlan:
     outputs: tuple[str, ...]
@@ -38,6 +42,15 @@ def route_request(raw: dict[str, Any]) -> RoutePlan:
     request = normalize_request(raw)
     root = Path(__file__).resolve().parents[1]
     products = load_products(root)
+    styles = load_styles(root)
+    selected_style = next(
+        (style for style in styles if style["id"] == request.style),
+        None,
+    )
+    if request.style and selected_style is None and request.style_source != "freeform":
+        raise ValueError(
+            f"Unknown catalog style: {request.style}. Set style_source to 'freeform' to use it."
+        )
     selected_product = next(
         (
             product
@@ -60,6 +73,16 @@ def route_request(raw: dict[str, Any]) -> RoutePlan:
             )
             if unsupported_outputs:
                 conflicts.append(f"outputs: {', '.join(unsupported_outputs)}")
+        if request.aspect_ratio and request.aspect_ratio not in selected_product["aspect_ratios"]:
+            conflicts.append(f"aspect_ratio: {request.aspect_ratio}")
+        if request.presenter and not _supports_catalog_mode(
+            selected_product, "presenter", "presenter-mode"
+        ):
+            conflicts.append("presenter: selected product does not support presenter mode")
+        if request.single_file and not _supports_catalog_mode(
+            selected_product, "single_file", "single-file-presentation"
+        ):
+            conflicts.append("single_file: selected product does not support single-file delivery")
         if request.editable:
             requested_outputs = (
                 request.outputs if has_explicit_outputs else tuple(selected_product["outputs"])
@@ -107,13 +130,7 @@ def route_request(raw: dict[str, Any]) -> RoutePlan:
             references,
         )
     needs_pptx = request.editable or "pptx" in request.outputs
-    needs_html = "html" in request.outputs or (
-        "pdf" in request.outputs and (request.presenter or request.single_file)
-    )
-    selected_style = next(
-        (style for style in load_styles(root) if style["id"] == request.style),
-        None,
-    )
+    needs_html = "html" in request.outputs or "pdf" in request.outputs
     preferred_authority = (
         selected_style["preferred_design_authority"] if selected_style else ""
     )
