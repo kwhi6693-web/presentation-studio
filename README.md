@@ -125,7 +125,7 @@ python scripts/upstream_sync.py check --json
 python scripts/upstream_sync.py sync --all --report artifacts/upstream-sync-report.json
 ```
 
-自动同步支持上游事件触发、手动触发和 5 分钟轮询回退。只有来源、稳定版本、路径和许可证均通过校验，并且仓库全部门禁通过时，才会向独立自动化分支提交并创建同步 PR；`main` 仍要求 PR 和 `verify` 门禁。操作说明见 [上游持续同步](docs/upstream-sync.md)。
+自动同步支持上游事件触发、手动触发和每小时第 17 分钟轮询回退。只有来源、稳定版本、路径和许可证均通过校验，并且仓库全部门禁通过时，才会向独立自动化分支提交并创建或更新同步 PR；`main` 仍要求 PR 和 `verify` 门禁。操作说明见 [上游持续同步](docs/upstream-sync.md)。
 
 本次真实同步、示例哈希与仓库门禁记录见 [2026-08-13 验收证据](docs/evidence/acceptance-2026-08-13.md)。
 

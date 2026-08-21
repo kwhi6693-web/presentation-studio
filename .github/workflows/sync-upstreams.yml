@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: upstream-release-sync
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   synchronize:
@@ -26,6 +26,31 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Select the synchronization pull request branch
+        id: sync_pr
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          selection="$(
+            gh pr list --state open --base main --limit 100 \
+              --json headRefName,url,isCrossRepository \
+              --jq 'map(select((.isCrossRepository == false) and (.headRefName | startswith("automation/sync-stable-upstreams-")))) | first // {}'
+          )"
+          sync_branch="$(jq -r '.headRefName // ""' <<< "$selection")"
+          existing_pr="$(jq -r '.url // ""' <<< "$selection")"
+          if [[ -n "$sync_branch" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git fetch origin "$sync_branch"
+            git switch --create "$sync_branch" --track "origin/$sync_branch"
+            git merge --no-edit origin/main
+          else
+            sync_branch="automation/sync-stable-upstreams-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          fi
+          echo "branch=$sync_branch" >> "$GITHUB_OUTPUT"
+          echo "url=$existing_pr" >> "$GITHUB_OUTPUT"
       - name: Stage latest stable upstream releases
         run: python scripts/upstream_sync.py sync --all --report artifacts/upstream-sync-report.json
         env:
@@ -59,26 +84,24 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          existing_pr="$(
-            gh pr list --state open --base main --json headRefName,url \
-              --jq 'map(select(.headRefName | startswith("automation/sync-stable-upstreams-"))) | first | .url // ""'
-          )"
-          if [[ -n "$existing_pr" ]]; then
-            echo "::notice::Verified upstream changes are already represented by $existing_pr"
-            exit 0
-          fi
-
-          sync_branch="automation/sync-stable-upstreams-${GITHUB_RUN_ID}"
+          sync_branch="${{ steps.sync_pr.outputs.branch }}"
+          existing_pr="${{ steps.sync_pr.outputs.url }}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch -c "$sync_branch"
+          if [[ -z "$existing_pr" ]]; then
+            git switch -c "$sync_branch"
+          fi
           git commit -m "chore: sync stable upstream releases"
           git push --set-upstream origin "$sync_branch"
-          gh pr create \
-            --base main \
-            --head "$sync_branch" \
-            --title "chore: sync stable upstream releases" \
-            --body "Automated verified update from workflow run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
+          if [[ -n "$existing_pr" ]]; then
+            echo "::notice::Updated verified upstream changes in $existing_pr"
+          else
+            gh pr create \
+              --base main \
+              --head "$sync_branch" \
+              --title "chore: sync stable upstream releases" \
+              --body "Automated verified update from workflow run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
+          fi
       - name: Upload synchronization report
         if: always()
         uses: actions/upload-artifact@v4

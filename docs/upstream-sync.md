@@ -38,7 +38,7 @@ GitHub scheduled workflows are best-effort and may be delayed under load. Theref
 8. Run unit tests, example verification, deterministic package build, archive verification, and repository checks.
 9. If all gates pass and an actual vendored change exists, commit it to a unique `automation/sync-stable-upstreams-*` branch and open a pull request against `main`.
 
-The transaction is fail-closed: a download, archive, path, license, test, packaging, or validation failure prevents any automated branch push or pull request. An existing open synchronization pull request suppresses duplicates. The diagnostic report is uploaded as an Actions artifact, and the repository ruleset requires the pull request's `verify` check before merge.
+The transaction is fail-closed: a download, archive, path, license, test, packaging, or validation failure prevents any automated branch push or pull request. Runs are serialized. If a same-repository synchronization pull request is already open, the workflow checks out its branch, merges the current `main`, and adds the latest verified upstream changes with a normal non-force push instead of opening a duplicate. The diagnostic report is uploaded as an Actions artifact, and the repository ruleset requires the pull request's `verify` check before merge.
 
 ## Commands
 

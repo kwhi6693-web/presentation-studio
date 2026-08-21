@@ -111,7 +111,14 @@ class RepositoryContractTests(unittest.TestCase):
 
         for term in (
             "pull-requests: write",
-            'sync_branch="automation/sync-stable-upstreams-${GITHUB_RUN_ID}"',
+            "cancel-in-progress: false",
+            'sync_branch="automation/sync-stable-upstreams-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"',
+            "--limit 100",
+            "isCrossRepository",
+            ".isCrossRepository == false",
+            'git fetch origin "$sync_branch"',
+            'git switch --create "$sync_branch" --track "origin/$sync_branch"',
+            "git merge --no-edit origin/main",
             'git push --set-upstream origin "$sync_branch"',
             "gh pr create",
             "--base main",
@@ -119,6 +126,8 @@ class RepositoryContractTests(unittest.TestCase):
             with self.subTest(term=term):
                 self.assertIn(term, workflow)
         self.assertNotIn("          git push\n", workflow)
+        self.assertNotIn("--force", workflow)
+        self.assertLess(workflow.index("Verify package and archive parity"), workflow.index("git push"))
 
     def test_source_lock_declares_stable_update_policy(self) -> None:
         lock_path = ROOT / "presentation-studio" / "source-lock.json"
