@@ -6,11 +6,79 @@
 
 [![Validate package](https://github.com/kwhi6693-web/presentation-studio/actions/workflows/validate.yml/badge.svg)](https://github.com/kwhi6693-web/presentation-studio/actions/workflows/validate.yml)
 [![Sync upstreams](https://github.com/kwhi6693-web/presentation-studio/actions/workflows/sync-upstreams.yml/badge.svg)](https://github.com/kwhi6693-web/presentation-studio/actions/workflows/sync-upstreams.yml)
+[![Latest release](https://img.shields.io/github/v/release/kwhi6693-web/presentation-studio?display_name=tag&sort=semver)](https://github.com/kwhi6693-web/presentation-studio/releases/latest)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Product recipes: 13](https://img.shields.io/badge/Product%20recipes-13-2f855a)](presentation-studio/catalog/products.json)
 [![Style profiles: 8](https://img.shields.io/badge/Style%20profiles-8-805ad5)](presentation-studio/catalog/styles.json)
 
-[中文说明](#中文说明) · [English Guide](#english-guide) · [示例产品](#双语示例产品) · [安装](#安装与验证) · [完整架构](docs/architecture.md) · [上游同步](docs/upstream-sync.md)
+[下载最新版](https://github.com/kwhi6693-web/presentation-studio/releases/latest) · [60 秒快速开始](#60-秒快速开始--60-second-quick-start) · [中文说明](#中文说明) · [English Guide](#english-guide) · [示例产品](#双语示例产品) · [安装与验证](#安装与验证) · [贡献](CONTRIBUTING.md) · [安全](SECURITY.md)
+
+## 60 秒快速开始 / 60-second quick start
+
+### Release 安装 / Install from a Release
+
+1. 从 [Latest Release](https://github.com/kwhi6693-web/presentation-studio/releases/latest) 下载 `presentation-studio.zip` 和 `presentation-studio.zip.sha256`。Download both assets into the same directory.
+2. 使用下方[安装与验证](#安装与验证)中的 Linux、macOS 或 PowerShell 命令校验 SHA-256。Verify the ZIP before extraction.
+3. 解压后应只有一个 `presentation-studio/` 根目录；使用已解析的 Python 和 Node 可执行文件运行自检：
+
+   ```bash
+   python presentation-studio/scripts/self_check.py \
+     --root presentation-studio \
+     --python <resolved-python> \
+     --node <resolved-node> \
+     --json
+   ```
+
+4. 自检返回 `PASS` 后，将该根目录安装到 Codex Skills 目录。Do not activate a package that fails its self-check or checksum validation.
+
+### 源码安装 / Install from source
+
+```powershell
+git clone https://github.com/kwhi6693-web/presentation-studio.git
+Set-Location presentation-studio
+.\scripts\install.ps1
+```
+
+```bash
+git clone https://github.com/kwhi6693-web/presentation-studio.git
+cd presentation-studio
+./scripts/install.sh
+```
+
+两个安装器都会先在 Skill 发现目录外暂存、计数并运行真实自检，再进行激活。Both installers stage and self-check outside the discovery directory before activation.
+
+## 运行时与能力支持矩阵 / Runtime and capability matrix
+
+| 运行时或能力 / Runtime or capability | 用途 / Required for | 必需性 / Requirement | Preflight evidence |
+|---|---|---|---|
+| Python 3.11+（已测试；优先使用 bundled runtime） | 路由、验证、PPTX 工作流 | 核心 | `runtimes.python`, `readiness.pptx_core` |
+| 已解析的 bundled Node.js runtime | 浏览器与 Baoyu 工作流 | 对相应引擎为核心 | `runtimes.node`, `readiness.baoyu_core` |
+| Office renderer | 原生 Office 渲染 | 可选 | `readiness.office_renderer` |
+| Chromium + Playwright | 浏览器渲染、测量与 QA | 可选 | `readiness.chromium`, `capabilities.node.browser_qa` |
+| 图像 Provider 凭据 | 生成式视觉资产 | 可选 | 仅报告脱敏后的 provider readiness |
+| 可选 Python / Node 模块 | 摄取、旁白、高级 SVG、Web 抽取 | 可选 | 逐模块布尔值；一个缺失模块不会污染其他模块 |
+
+在 Codex App 中优先调用 bundled dependency loader；否则使用 [dependencies.md](presentation-studio/references/dependencies.md) 中的固定解析流程。不要把 WindowsApps alias 或偶然命中的 PATH 程序当作运行时证据。
+
+## 产品与引擎选择 / Product and engine selection
+
+| 需求 / Need | 推荐路径 / Preferred route |
+|---|---|
+| 原生可编辑 PPTX、图表、表格、演讲者备注 | PPT Master |
+| Swiss / editorial 视觉体系和演示叙事 | Guizang |
+| 独立 HTML、键盘导航、浏览器 PDF | Frontend Slides |
+| 封面、插图、信息图、技术图、图像幻灯片 | Baoyu |
+| 同时交付 PPTX 与独立 HTML / PDF | Dual-format product route |
+
+最终选择由标准化 brief、环境 preflight、产品 Catalog、硬约束和降级策略共同决定。指定产品与请求格式冲突时，系统应明确返回冲突，而不是静默换成另一种交付物。
+
+## 故障排查 / Troubleshooting
+
+- 使用明确解析的 Python、Node 和 Node-package 路径运行 `presentation-studio/scripts/preflight.py`，不要先探测裸 `python`、`node` 或 PATH alias。
+- 对已安装的 Skill 根目录运行 `presentation-studio/scripts/self_check.py --json`，确认文件、Catalog、引擎和最小路由都能加载。
+- 区分 `PASS`、`PARTIAL` 和 `FAIL`：可选能力缺失可以导致明确降级，但不可把需要原生编辑的数据交付静默扁平化成图片。
+- 提交 Bug 前移除凭据、私有文件内容和本机绝对路径，并附上脱敏后的 preflight、自检、版本和最小复现。
+- 安全漏洞不要提交公开 Issue；请遵循 [SECURITY.md](SECURITY.md) 私下报告。
 
 ## 中文说明
 
@@ -196,5 +264,7 @@ docs/                        # Architecture, sync operations, and evidence
 ## Credits and licensing
 
 Presentation Studio is licensed under [AGPL-3.0](LICENSE). Vendored components retain their original licenses and notices. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [CONTRIBUTORS.md](CONTRIBUTORS.md), the upstream repositories above, and `presentation-studio/engines/*/LICENSE*`.
+
+Contributions are welcome through the verified workflow in [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities privately according to [SECURITY.md](SECURITY.md), and follow the participation standards in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 This integration adds the product catalog, style catalog, Fast Path, environment preflight, exact-data binding, engine routing, safety boundaries, acceptance semantics, deterministic packaging, and upstream synchronization around the four upstream projects. It does not replace or obscure their authorship.

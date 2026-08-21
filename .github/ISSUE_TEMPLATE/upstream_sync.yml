@@ -1,0 +1,54 @@
+name: Upstream synchronization / 上游同步
+description: Propose or diagnose a stable upstream import with provenance and adapter evidence.
+title: "[Upstream]: "
+labels:
+  - upstream
+body:
+  - type: input
+    id: repository
+    attributes:
+      label: Upstream repository / 上游仓库
+      placeholder: https://github.com/owner/repository
+    validations:
+      required: true
+  - type: input
+    id: release
+    attributes:
+      label: Stable release or tag / 稳定版本或标签
+    validations:
+      required: true
+  - type: input
+    id: evidence
+    attributes:
+      label: Immutable release evidence / 不可变版本证据
+      description: Link the formal, non-draft, non-prerelease release and immutable tag or commit.
+    validations:
+      required: true
+  - type: textarea
+    id: import_paths
+    attributes:
+      label: Import paths / 导入路径
+      description: List source allowlist paths and generated/package paths expected to change.
+    validations:
+      required: true
+  - type: textarea
+    id: license
+    attributes:
+      label: License and notice impact / 许可证与声明影响
+      description: Identify license files, notices, attribution, or compatibility changes.
+    validations:
+      required: true
+  - type: textarea
+    id: adapters
+    attributes:
+      label: Adapter impact / 适配器影响
+      description: Explain which local adapters must be preserved or updated and why.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification plan / 验证计划
+      description: Include tests, examples, deterministic build, package parity, and rendered checks needed before a PR.
+    validations:
+      required: true
