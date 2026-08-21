@@ -1,20 +1,26 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from .catalog import load_products, load_styles
 from .data_binding import has_data_binding_contract
+from .request import Request, normalize_request
 
 
-_TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
+RetrievalRequest = Request
+
+
+_ASCII_TOKEN_PATTERN = re.compile(r"[a-z0-9]+", re.IGNORECASE)
 _STYLE_WEIGHTS = {
-    "topic": 0.30,
-    "audience": 0.25,
-    "purpose": 0.20,
-    "density": 0.15,
+    "topic": 0.25,
+    "audience": 0.20,
+    "purpose": 0.15,
+    "tone": 0.20,
+    "density": 0.10,
     "channel": 0.10,
 }
 _PRODUCT_WEIGHTS = {
@@ -31,84 +37,24 @@ _SCORE_DIMENSIONS = tuple(_PRODUCT_WEIGHTS)
 _EXACT_DATA_QUALITY_GATE = "data-fidelity"
 _NEUTRAL_STYLE_ID = "swiss-editorial"
 _LOW_STYLE_SIGNAL = 0.06
-_KIND_ALIASES = {
-    "presentation": "presentation",
-    "deck": "presentation",
-    "slide deck": "presentation",
-    "slides": "presentation",
-    "ppt": "presentation",
-    "pptx": "presentation",
-    "powerpoint": "presentation",
-    "powerpoint deck": "presentation",
-    "investor pitch deck": "presentation",
-    "pitch deck": "presentation",
-    "data deck": "presentation",
-    "technical deck": "presentation",
-    "image slide deck": "presentation",
-    "cover": "cover",
-    "cover image": "cover",
-    "article cover": "cover",
-    "illustration": "illustration",
-    "article illustration": "illustration",
-    "infographic": "infographic",
-    "infographic image": "infographic",
-    "diagram": "diagram",
-    "technical diagram": "diagram",
-    "architecture diagram": "diagram",
-    "image": "image",
-    "data image": "image",
-    "png": "image",
-}
-_KIND_CONTEXT = {
-    "investor pitch deck": {
-        "audience": "investors",
-        "purpose": "investor pitch fundraising",
-        "topic": "business finance",
-    },
-    "pitch deck": {"purpose": "investor pitch"},
-    "data deck": {"topic": "data metrics", "density": "high"},
-    "technical deck": {"topic": "technical architecture", "audience": "engineers"},
-    "technical diagram": {"topic": "technical architecture"},
-    "architecture diagram": {"topic": "technical architecture"},
-    "image slide deck": {"purpose": "visual storytelling", "assets": "image"},
-    "cover image": {"purpose": "cover"},
-    "article cover": {"purpose": "article cover", "channel": "article"},
-    "data image": {"topic": "data metrics", "density": "high"},
-}
-_KIND_OUTPUTS = {
-    "ppt": "pptx",
-    "pptx": "pptx",
-    "powerpoint": "pptx",
-    "powerpoint deck": "pptx",
-    "png": "png",
-}
-_OUTPUT_ALIASES = {
-    "ppt": "pptx",
-    "pptx": "pptx",
-    "powerpoint": "pptx",
-    "slides": "pptx",
-    "slide deck": "pptx",
-    "web": "html",
-    "web presentation": "html",
-    "html": "html",
-    "pdf": "pdf",
-    "png": "png",
-    "image": "png",
-    "jpg": "png",
-    "jpeg": "png",
-    "svg": "svg",
-    "vector": "svg",
-}
-_DATA_FORM_ALIASES = {
-    "table": "table",
-    "csv": "csv",
-    "xlsx": "xlsx",
-    "excel": "xlsx",
-    "json": "json",
-    "markdown table": "markdown-table",
-    "markdown-table": "markdown-table",
-    "text": "text",
-    "image": "image",
+_READINESS_AVAILABLE = "available"
+_READINESS_UNAVAILABLE = "unavailable"
+_READINESS_UNKNOWN = "unknown"
+_READINESS_STATES = frozenset({
+    _READINESS_AVAILABLE,
+    _READINESS_UNAVAILABLE,
+    _READINESS_UNKNOWN,
+})
+_LEGACY_READINESS_KEYS = frozenset({
+    "python",
+    "node",
+    "office_renderer",
+    "chromium",
+    "image_provider",
+})
+_LEGACY_CAPABILITY_ASSERTIONS = {
+    "pptx_core": "python",
+    "baoyu_core": "node",
 }
 _TOKEN_SYNONYMS = {
     "investor": "investors",
@@ -121,21 +67,68 @@ _TOKEN_SYNONYMS = {
     "analytic": "analytics",
     "analytical": "analytics",
 }
+_CJK_TOKEN_SYNONYMS = {
+    "人工智能": "ai",
+    "产品": "product",
+    "战略": "strategy",
+    "投资者": "investors",
+    "融资": "fundraising",
+    "路演": "investor-pitch",
+    "专业": "professional",
+    "会议": "meeting",
+    "中等": "medium",
+    "高管": "executives",
+    "董事会": "board",
+    "财务": "finance",
+    "数据": "data",
+    "技术": "technology",
+    "架构": "architecture",
+    "工程师": "engineers",
+    "教育": "education",
+    "学习": "learning",
+}
 
 
 def _phrase(value: Any) -> str:
-    text = str(value or "").strip().lower().replace("_", " ").replace("-", " ")
+    text = unicodedata.normalize("NFKC", str(value or "")).strip().lower()
+    text = text.replace("_", " ").replace("-", " ")
     return " ".join(text.split())
 
 
-def _tokens(value: str) -> set[str]:
-    return {
-        _TOKEN_SYNONYMS.get(token, token)
-        for token in _TOKEN_PATTERN.findall(_phrase(value))
-    }
+def _is_han(character: str) -> bool:
+    name = unicodedata.name(character, "")
+    return name.startswith(("CJK UNIFIED IDEOGRAPH", "CJK COMPATIBILITY IDEOGRAPH"))
 
 
-def _overlap(left: set[str], right: set[str]) -> float:
+def _tokens(value: str) -> frozenset[str]:
+    tokens: set[str] = set()
+    text = _phrase(value)
+    index = 0
+    while index < len(text):
+        if _is_han(text[index]):
+            end = index + 1
+            while end < len(text) and _is_han(text[end]):
+                end += 1
+            span = text[index:end]
+            tokens.add(span)
+            tokens.update(span)
+            tokens.update(span[offset : offset + 2] for offset in range(len(span) - 1))
+            for phrase, signal in _CJK_TOKEN_SYNONYMS.items():
+                if phrase in span:
+                    tokens.update((phrase, signal))
+            index = end
+            continue
+        match = _ASCII_TOKEN_PATTERN.match(text, index)
+        if match is not None:
+            token = match.group()
+            tokens.add(_TOKEN_SYNONYMS.get(token, token))
+            index = match.end()
+            continue
+        index += 1
+    return frozenset(tokens)
+
+
+def _overlap(left: frozenset[str], right: frozenset[str]) -> float:
     if not left or not right:
         return 0.0
     return len(left & right) / len(left | right)
@@ -143,91 +136,6 @@ def _overlap(left: set[str], right: set[str]) -> float:
 
 def _tag_overlap(value: str, tags: list[str]) -> float:
     return _overlap(_tokens(value), _tokens(" ".join(tags)))
-
-
-@dataclass(frozen=True)
-class RetrievalRequest:
-    kind: str
-    outputs: tuple[str, ...]
-    editable: bool
-    has_exact_data: bool
-    topic: str
-    audience: str
-    purpose: str
-    tone: str
-    channel: str
-    density: str
-    style: str
-    assets: tuple[str, ...]
-    data_forms: tuple[str, ...]
-
-    @classmethod
-    def from_dict(cls, raw: dict[str, Any]) -> RetrievalRequest:
-        if not isinstance(raw, dict):
-            raise ValueError("request: top-level value must be an object")
-
-        def text(field: str) -> str:
-            if field not in raw:
-                return ""
-            value = raw[field]
-            if not isinstance(value, str):
-                raise ValueError(f"request.{field}: must be a string")
-            return _phrase(value)
-
-        def values(field: str, aliases: dict[str, str] | None = None) -> tuple[str, ...]:
-            if field not in raw:
-                return ()
-            value = raw[field]
-            if isinstance(value, str):
-                value = (value,)
-            if not isinstance(value, (list, tuple)):
-                raise ValueError(f"request.{field}: must be a string or list of strings")
-            normalized: list[str] = []
-            for index, entry in enumerate(value):
-                if not isinstance(entry, str) or not entry.strip():
-                    raise ValueError(f"request.{field}[{index}]: must be a non-empty string")
-                phrase = _phrase(entry)
-                canonical = aliases.get(phrase, phrase) if aliases else phrase
-                if canonical not in normalized:
-                    normalized.append(canonical)
-            return tuple(normalized)
-
-        def boolean(field: str) -> bool:
-            value = raw.get(field, False)
-            if not isinstance(value, bool):
-                raise ValueError(f"request.{field}: must be a boolean")
-            return value
-
-        raw_kind = text("kind") or "presentation"
-        kind = _KIND_ALIASES.get(raw_kind, raw_kind)
-        context = _KIND_CONTEXT.get(raw_kind, {})
-        outputs = list(values("outputs", _OUTPUT_ALIASES))
-        inferred_output = _KIND_OUTPUTS.get(raw_kind)
-        if inferred_output and not outputs:
-            outputs.append(inferred_output)
-        assets = list(values("assets"))
-        contextual_asset = context.get("assets")
-        if contextual_asset and contextual_asset not in assets:
-            assets.append(contextual_asset)
-        style_value = raw.get("style", "")
-        if not isinstance(style_value, str):
-            raise ValueError("request.style: must be a string")
-        style = _phrase(style_value).replace(" ", "-")
-        return cls(
-            kind=kind,
-            outputs=tuple(outputs),
-            editable=boolean("editable"),
-            has_exact_data=boolean("has_exact_data"),
-            topic=text("topic") or context.get("topic", ""),
-            audience=text("audience") or context.get("audience", ""),
-            purpose=text("purpose") or context.get("purpose", ""),
-            tone=text("tone"),
-            channel=text("channel") or context.get("channel", ""),
-            density=text("density") or context.get("density", ""),
-            style=style,
-            assets=tuple(assets),
-            data_forms=values("data_forms", _DATA_FORM_ALIASES),
-        )
 
 
 @dataclass(frozen=True)
@@ -270,12 +178,16 @@ def _style_confidence(score: float) -> str:
     return "low"
 
 
-def _infer_style(request: RetrievalRequest, styles: tuple[dict[str, Any], ...]) -> dict[str, Any]:
+def _infer_style(request: Request, styles: tuple[dict[str, Any], ...]) -> dict[str, Any]:
     if request.style:
         selected = next((style for style in styles if style["id"] == request.style), None)
+        if selected is None and request.style_source != "freeform":
+            raise ValueError(
+                f"Unknown catalog style: {request.style}. Set style_source to 'freeform' to use it."
+            )
         return {
             "selected": request.style,
-            "source": "explicit",
+            "source": "freeform" if selected is None else "explicit",
             "score": 1.0,
             "confidence": "high",
             "preferred_design_authority": (
@@ -326,10 +238,22 @@ def _infer_style(request: RetrievalRequest, styles: tuple[dict[str, Any], ...]) 
     }
 
 
-def _supports_request(product: dict[str, Any], request: RetrievalRequest) -> bool:
+def _supports_catalog_mode(product: dict[str, Any], field: str, use_case: str) -> bool:
+    return bool(product.get(field, use_case in product["intended_uses"]))
+
+
+def _supports_request(product: dict[str, Any], request: Request) -> bool:
     if product["kind"] != request.kind:
         return False
     if request.outputs and not set(request.outputs).issubset(product["outputs"]):
+        return False
+    if request.presenter and not _supports_catalog_mode(product, "presenter", "presenter-mode"):
+        return False
+    if request.single_file and not _supports_catalog_mode(
+        product, "single_file", "single-file-presentation"
+    ):
+        return False
+    if request.aspect_ratio and request.aspect_ratio not in product["aspect_ratios"]:
         return False
     if request.editable:
         if request.outputs and not set(request.outputs).intersection(product["editable_outputs"]):
@@ -347,7 +271,7 @@ def _supports_request(product: dict[str, Any], request: RetrievalRequest) -> boo
 
 
 def _hard_filter(
-    products: tuple[dict[str, Any], ...], request: RetrievalRequest
+    products: tuple[dict[str, Any], ...], request: Request
 ) -> tuple[list[dict[str, Any]], tuple[str, ...], tuple[str, ...]]:
     candidates = list(products)
     evidence: list[str] = []
@@ -363,6 +287,27 @@ def _hard_filter(
             lambda product: not request.outputs or set(request.outputs).issubset(product["outputs"]),
             f"outputs: no {request.kind} product supports {', '.join(request.outputs)}",
             f"outputs={','.join(request.outputs)}",
+        ),
+        (
+            "presenter",
+            lambda product: not request.presenter
+            or _supports_catalog_mode(product, "presenter", "presenter-mode"),
+            "presenter: no surviving product supports presenter mode",
+            "presenter=true",
+        ),
+        (
+            "single_file",
+            lambda product: not request.single_file
+            or _supports_catalog_mode(product, "single_file", "single-file-presentation"),
+            "single_file: no surviving product supports single-file delivery",
+            "single_file=true",
+        ),
+        (
+            "aspect_ratio",
+            lambda product: not request.aspect_ratio
+            or request.aspect_ratio in product["aspect_ratios"],
+            f"aspect_ratio: no surviving product supports {request.aspect_ratio}",
+            f"aspect_ratio={request.aspect_ratio}",
         ),
         (
             "editable",
@@ -403,34 +348,53 @@ def _hard_filter(
     return candidates, tuple(evidence), ()
 
 
-def _validate_readiness(value: Any) -> dict[str, bool] | None:
+def _validate_readiness(value: Any) -> dict[str, str]:
     if value is None:
-        return None
+        return {}
     if not isinstance(value, dict):
-        raise ValueError("request.readiness: must be an object of boolean values")
-    result: dict[str, bool] = {}
+        raise ValueError("request.readiness: must be an object of readiness values")
+    result: dict[str, str] = {}
     for key, available in value.items():
         if not isinstance(key, str) or not key:
             raise ValueError("request.readiness: keys must be non-empty strings")
-        if not isinstance(available, bool):
-            raise ValueError(f"request.readiness.{key}: must be a boolean")
-        result[key] = available
+        if isinstance(available, bool):
+            result[key] = _READINESS_AVAILABLE if available else _READINESS_UNAVAILABLE
+        elif isinstance(available, str) and available in _READINESS_STATES:
+            result[key] = available
+        else:
+            raise ValueError(
+                f"request.readiness.{key}: must be a boolean or one of "
+                "available, unavailable, unknown"
+            )
+    if set(result) == _LEGACY_READINESS_KEYS:
+        result.update(
+            {
+                capability: result[runtime]
+                for capability, runtime in _LEGACY_CAPABILITY_ASSERTIONS.items()
+            }
+        )
     return result
 
 
+def _readiness_state(readiness: dict[str, str], prerequisite: str) -> str:
+    return readiness.get(prerequisite, _READINESS_UNKNOWN)
+
+
 def _missing_prerequisites(
-    product: dict[str, Any], readiness: dict[str, bool] | None, field: str
+    product: dict[str, Any], readiness: dict[str, str], field: str
 ) -> tuple[str, ...]:
-    if readiness is None:
-        return ()
-    return tuple(name for name in product[field] if readiness.get(name) is False)
+    return tuple(
+        name
+        for name in product[field]
+        if _readiness_state(readiness, name) != _READINESS_AVAILABLE
+    )
 
 
 def _product_score(
     product: dict[str, Any],
-    request: RetrievalRequest,
+    request: Request,
     style: dict[str, Any],
-    readiness: dict[str, bool] | None,
+    readiness: dict[str, str],
 ) -> tuple[float, dict[str, float], tuple[str, ...]]:
     use_case_signal = " ".join((request.topic, *request.assets))
     if request.has_exact_data:
@@ -446,7 +410,10 @@ def _product_score(
     readiness_score = (
         0.0
         if not required
-        else sum(readiness is not None and readiness.get(name) is True for name in required)
+        else sum(
+            _readiness_state(readiness, name) == _READINESS_AVAILABLE
+            for name in required
+        )
         / len(required)
     )
     raw_scores = {
@@ -473,9 +440,9 @@ def _product_score(
 
 def _rank_products(
     products: list[dict[str, Any]],
-    request: RetrievalRequest,
+    request: Request,
     style: dict[str, Any],
-    readiness: dict[str, bool] | None,
+    readiness: dict[str, str],
 ) -> tuple[dict[str, Any], float, dict[str, float], tuple[str, ...]]:
     scored = [
         (*_product_score(product, request, style, readiness), product)
@@ -496,25 +463,63 @@ def _rank_products(
 def _fallback_product(
     products: tuple[dict[str, Any], ...],
     product: dict[str, Any],
-    request: RetrievalRequest,
-    readiness: dict[str, bool] | None,
+    request: Request,
+    readiness: dict[str, str],
 ) -> dict[str, Any] | None:
-    fallback_id = product.get("fallback")
-    declared = next((item for item in products if item["id"] == fallback_id), None)
-    if declared is None or not _supports_request(declared, request):
-        return None
-    missing = _missing_prerequisites(declared, readiness, "required_prerequisites")
-    missing += _missing_prerequisites(declared, readiness, "optional_prerequisites")
-    return None if missing else declared
+    by_id = {item["id"]: item for item in products}
+    current = product
+    visited = {product["id"]}
+    candidates: list[dict[str, Any]] = []
+    while current.get("fallback"):
+        fallback_id = current["fallback"]
+        if fallback_id in visited:
+            return None
+        visited.add(fallback_id)
+        declared = by_id.get(fallback_id)
+        if declared is None or not _supports_request(declared, request):
+            return None
+        candidates.append(declared)
+        current = declared
+    return next(
+        (
+            candidate
+            for candidate in candidates
+            if not _missing_prerequisites(candidate, readiness, "required_prerequisites")
+        ),
+        None,
+    )
+
+
+def _failed_recommendation(
+    *,
+    request: Request,
+    style: dict[str, Any],
+    reasons: tuple[str, ...],
+    missing_prerequisites: tuple[str, ...],
+) -> Recommendation:
+    return Recommendation(
+        product_id=None,
+        deliverables=request.outputs,
+        style=style,
+        engine_chain=(),
+        score=0.0,
+        score_breakdown={field: 0.0 for field in _SCORE_DIMENSIONS},
+        data_fidelity_gate="exact-match" if request.has_exact_data else None,
+        fallback=None,
+        status="FAIL",
+        reasons=reasons,
+        conflicts=(),
+        missing_prerequisites=missing_prerequisites,
+    )
 
 
 def recommend_product(
     raw: dict[str, Any],
     *,
     catalog_root: Path | None = None,
-    readiness: dict[str, bool] | None = None,
+    readiness: dict[str, bool | str] | None = None,
 ) -> Recommendation:
-    request = RetrievalRequest.from_dict(raw)
+    request = normalize_request(raw)
     effective_readiness = _validate_readiness(
         readiness if readiness is not None else raw.get("readiness")
     )
@@ -548,16 +553,18 @@ def recommend_product(
     missing_optional = _missing_prerequisites(
         product, effective_readiness, "optional_prerequisites"
     )
-    missing = missing_required + missing_optional
     reasons = filter_evidence + score_reasons + (
         f"selected {product['id']} with deterministic catalog scoring",
     )
 
-    if "image_provider" in missing_optional and "baoyu" in product["engine_chain"]:
+    if missing_required:
         declared = _fallback_product(products, product, request, effective_readiness)
         if declared is not None:
             fallback_score, fallback_breakdown, fallback_reasons = _product_score(
                 declared, request, style, effective_readiness
+            )
+            fallback_missing_optional = _missing_prerequisites(
+                declared, effective_readiness, "optional_prerequisites"
             )
             return Recommendation(
                 product_id=declared["id"],
@@ -570,57 +577,24 @@ def recommend_product(
                 fallback=declared["id"],
                 status="PARTIAL",
                 reasons=reasons + fallback_reasons + (
-                    "image provider unavailable; compatible catalog fallback selected",
+                    "required prerequisites unavailable; compatible catalog fallback selected",
                 ),
                 conflicts=(),
-                missing_prerequisites=("image_provider",),
-            )
-        ready_candidates = [
-            candidate
-            for candidate in eligible
-            if candidate["id"] != product["id"]
-            and not _missing_prerequisites(candidate, effective_readiness, "required_prerequisites")
-            and not _missing_prerequisites(candidate, effective_readiness, "optional_prerequisites")
-        ]
-        if ready_candidates:
-            fallback_product, fallback_score, fallback_breakdown, fallback_reasons = _rank_products(
-                ready_candidates, request, style, effective_readiness
-            )
-            return Recommendation(
-                product_id=fallback_product["id"],
-                deliverables=tuple(request.outputs or fallback_product["outputs"]),
-                style=style,
-                engine_chain=tuple(fallback_product["engine_chain"]),
-                score=fallback_score,
-                score_breakdown=fallback_breakdown,
-                data_fidelity_gate="exact-match" if request.has_exact_data else None,
-                fallback=fallback_product["id"],
-                status="PARTIAL",
-                reasons=reasons + fallback_reasons + (
-                    "image provider unavailable; compatible runnable candidate selected",
+                missing_prerequisites=tuple(
+                    dict.fromkeys((*missing_required, *fallback_missing_optional))
                 ),
-                conflicts=(),
-                missing_prerequisites=("image_provider",),
             )
-        return Recommendation(
-            product_id=None,
-            deliverables=tuple(request.outputs or product["outputs"]),
+        return _failed_recommendation(
+            request=request,
             style=style,
-            engine_chain=(),
-            score=0.0,
-            score_breakdown={field: 0.0 for field in _SCORE_DIMENSIONS},
-            data_fidelity_gate="exact-match" if request.has_exact_data else None,
-            fallback="intentional-no-ai-image-layout",
-            status="PARTIAL",
             reasons=reasons + (
-                "image provider unavailable; use intentional no-AI-image layout",
+                "required prerequisites unavailable and no runnable catalog fallback exists",
             ),
-            conflicts=(),
-            missing_prerequisites=("image_provider",),
+            missing_prerequisites=missing_required + missing_optional,
         )
 
-    if missing:
-        reasons += (f"missing prerequisites: {', '.join(missing)}",)
+    if missing_optional:
+        reasons += (f"missing optional prerequisites: {', '.join(missing_optional)}",)
     return Recommendation(
         product_id=product["id"],
         deliverables=tuple(request.outputs or product["outputs"]),
@@ -630,8 +604,8 @@ def recommend_product(
         score_breakdown=breakdown,
         data_fidelity_gate="exact-match" if request.has_exact_data else None,
         fallback=product.get("fallback"),
-        status="PARTIAL" if missing else "PASS",
+        status="PARTIAL" if missing_optional else "PASS",
         reasons=reasons,
         conflicts=(),
-        missing_prerequisites=missing,
+        missing_prerequisites=missing_optional,
     )

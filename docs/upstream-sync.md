@@ -22,7 +22,7 @@ The GitHub Actions workflow supports three triggers:
 
 - `repository_dispatch`: the near-real-time path. An upstream release relay sends the `upstream_release` event immediately after an official release is published.
 - `workflow_dispatch`: manual check or recovery from the Actions interface.
-- `schedule`: a five-minute polling fallback for missed or delayed events.
+- `schedule`: an hourly polling fallback at minute 17 for missed or delayed events.
 
 GitHub scheduled workflows are best-effort and may be delayed under load. Therefore “immediate” synchronization depends on the `repository_dispatch` relay; the schedule is a recovery mechanism, not a zero-latency guarantee.
 

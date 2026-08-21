@@ -159,6 +159,7 @@ def _run_router_smoke(root: Path) -> dict[str, object]:
         "readiness": {
             "python": True,
             "node": True,
+            "pptx_core": True,
             "office_renderer": False,
             "chromium": False,
             "image_provider": False,

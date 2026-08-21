@@ -46,10 +46,16 @@ OUTPUT_CAPABILITY_REQUIREMENTS = {
 KNOWN_PREREQUISITES = frozenset({
     "python",
     "node",
+    "pptx_core",
+    "baoyu_core",
     "office_renderer",
     "chromium",
     "image_provider",
 })
+ENGINE_CORE_PREREQUISITES = {
+    "ppt-master": "pptx_core",
+    "baoyu": "baoyu_core",
+}
 PRODUCT_REQUIRED_FIELDS = (
     "id",
     "engine_chain",
@@ -239,6 +245,13 @@ def validate_products(
             unknown = [name for name in item[field] if name not in KNOWN_PREREQUISITES]
             if unknown:
                 raise CatalogError(f"{path}.{field}: unknown prerequisite {unknown[0]}")
+        required_prerequisites = set(item["required_prerequisites"])
+        all_prerequisites = required_prerequisites | set(item["optional_prerequisites"])
+        for engine, prerequisite in ENGINE_CORE_PREREQUISITES.items():
+            if engine in engines and prerequisite not in required_prerequisites:
+                raise CatalogError(f"{path}.required_prerequisites: {engine} requires {prerequisite}")
+            if engine not in engines and prerequisite in all_prerequisites:
+                raise CatalogError(f"{path}.required_prerequisites: {prerequisite} requires {engine}")
         if set(item["required_prerequisites"]) & set(item["optional_prerequisites"]):
             raise CatalogError(f"{path}.optional_prerequisites: prerequisite cannot also be required")
         _validate_capabilities(item, engines, path)

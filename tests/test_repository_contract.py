@@ -97,7 +97,7 @@ class RepositoryContractTests(unittest.TestCase):
             "repository_dispatch",
             "workflow_dispatch",
             "schedule",
-            'cron: "2/5 * * * *"',
+            'cron: "17 * * * *"',
             "contents: write",
             "concurrency",
         ):

@@ -6,11 +6,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -26,6 +28,9 @@ CONFIG_PATH = Path(__file__).resolve().with_name("upstream_sources.json")
 SOURCE_LOCK_PATH = REPOSITORY_ROOT / "presentation-studio" / "source-lock.json"
 GITHUB_API = "https://api.github.com"
 COMMIT_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
+MAX_GITHUB_JSON_ATTEMPTS = 3
+GITHUB_RETRY_BACKOFF_SECONDS = 1.0
+MAX_GITHUB_RETRY_DELAY_SECONDS = 5.0
 
 
 class SyncError(RuntimeError):
@@ -94,9 +99,43 @@ class SyncResult:
 
 
 class GitHubClient:
-    def __init__(self, token: str | None = None, timeout: int = 30) -> None:
+    def __init__(
+        self,
+        token: str | None = None,
+        timeout: int = 30,
+        sleeper: Callable[[float], None] = time.sleep,
+    ) -> None:
         self._token = token
         self._timeout = timeout
+        self._sleeper = sleeper
+
+    @staticmethod
+    def _is_release_discovery_path(path: str) -> bool:
+        return (
+            path.endswith("/releases/latest")
+            or "/git/ref/tags/" in path
+            or "/git/tags/" in path
+        )
+
+    @staticmethod
+    def _retry_after(error: urllib.error.HTTPError) -> float | None:
+        value = error.headers.get("Retry-After") if error.headers else None
+        try:
+            delay = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(delay) or delay < 0:
+            return None
+        return min(delay, MAX_GITHUB_RETRY_DELAY_SECONDS)
+
+    @staticmethod
+    def _retry_delay(attempt: int, retry_after: float | None = None) -> float:
+        if retry_after is not None:
+            return retry_after
+        return min(
+            GITHUB_RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1)),
+            MAX_GITHUB_RETRY_DELAY_SECONDS,
+        )
 
     def get_json(self, path: str) -> dict:
         if not path.startswith("/"):
@@ -109,20 +148,37 @@ class GitHubClient:
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
         request = urllib.request.Request(f"{GITHUB_API}{path}", headers=headers)
-        try:
-            with urllib.request.urlopen(request, timeout=self._timeout) as response:
-                payload = json.load(response)
-        except urllib.error.HTTPError as error:
-            if error.code == 403:
-                raise SyncError("GitHub API refused the request or rate limit was reached") from error
-            if error.code == 404:
-                raise SyncError("GitHub release or tag was not found") from error
-            raise SyncError(f"GitHub API request failed with HTTP {error.code}") from error
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
-            raise SyncError("GitHub API request failed") from error
-        if not isinstance(payload, dict):
-            raise SyncError("GitHub API returned an unexpected payload")
-        return payload
+        for attempt in range(1, MAX_GITHUB_JSON_ATTEMPTS + 1):
+            retry_after: float | None = None
+            try:
+                with urllib.request.urlopen(request, timeout=self._timeout) as response:
+                    payload = json.load(response)
+            except urllib.error.HTTPError as error:
+                category = f"HTTP {error.code}"
+                retryable = error.code == 429 or error.code >= 500 or (
+                    error.code == 404 and self._is_release_discovery_path(path)
+                )
+                retry_after = self._retry_after(error) if retryable else None
+            except (urllib.error.URLError, TimeoutError, OSError):
+                category = "transport error"
+                retryable = True
+            except (json.JSONDecodeError, UnicodeError):
+                category = "invalid JSON response"
+                retryable = True
+            else:
+                if isinstance(payload, dict):
+                    return payload
+                category = "unexpected JSON payload"
+                retryable = True
+
+            if retryable and attempt < MAX_GITHUB_JSON_ATTEMPTS:
+                self._sleeper(self._retry_delay(attempt, retry_after))
+                continue
+            raise SyncError(
+                f"terminal {category} after {attempt} "
+                f"attempt{'s' if attempt != 1 else ''}"
+            )
+        raise AssertionError("GitHub retry loop exited unexpectedly")
 
     def download(self, path: str, destination: Path) -> None:
         if not path.startswith("/"):
@@ -163,9 +219,19 @@ def parse_release(payload: dict, resolved_commit: str) -> ReleaseInfo:
     return ReleaseInfo(tag=tag, commit=resolved_commit.lower(), url=url, published_at=published_at)
 
 
+def _discovery_json(source: SourceConfig, operation: str, client: JsonClient, path: str) -> dict:
+    try:
+        return client.get_json(path)
+    except SyncError as error:
+        raise SyncError(f"source {source.name}; {operation}; {error}") from error
+
+
 def _tag_commit(source: SourceConfig, tag: str, client: JsonClient) -> str:
     encoded_tag = urllib.parse.quote(tag, safe="")
-    reference = client.get_json(
+    reference = _discovery_json(
+        source,
+        "resolve release tag",
+        client,
         f"/repos/{source.owner}/{source.repository_name}/git/ref/tags/{encoded_tag}"
     )
     obj = reference.get("object") if isinstance(reference, dict) else None
@@ -178,7 +244,10 @@ def _tag_commit(source: SourceConfig, tag: str, client: JsonClient) -> str:
             return str(sha).lower()
         if object_type != "tag" or not _valid_commit(sha):
             break
-        tag_object = client.get_json(
+        tag_object = _discovery_json(
+            source,
+            "resolve annotated release tag",
+            client,
             f"/repos/{source.owner}/{source.repository_name}/git/tags/{sha}"
         )
         obj = tag_object.get("object") if isinstance(tag_object, dict) else None
@@ -186,7 +255,12 @@ def _tag_commit(source: SourceConfig, tag: str, client: JsonClient) -> str:
 
 
 def discover_latest_release(source: SourceConfig, client: JsonClient) -> ReleaseInfo:
-    payload = client.get_json(f"/repos/{source.owner}/{source.repository_name}/releases/latest")
+    payload = _discovery_json(
+        source,
+        "discover latest release",
+        client,
+        f"/repos/{source.owner}/{source.repository_name}/releases/latest",
+    )
     tag = payload.get("tag_name") if isinstance(payload, dict) else None
     if not isinstance(tag, str) or not tag.strip():
         raise SyncError(f"Latest release for {source.name} has no tag")
