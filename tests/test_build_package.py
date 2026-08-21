@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -10,6 +12,11 @@ try:
     from scripts.build_package import build_archive
 except ModuleNotFoundError:
     build_archive = None
+
+try:
+    from scripts.build_release_checksum import build_release_checksum
+except ModuleNotFoundError:
+    build_release_checksum = None
 
 
 class DeterministicPackageTests(unittest.TestCase):
@@ -88,6 +95,50 @@ class DeterministicPackageTests(unittest.TestCase):
         self.assertFalse(any("/.git/" in name for name in names))
         self.assertFalse(any("/node_modules/" in name for name in names))
         self.assertFalse(any(name.endswith((".log", ".tmp")) for name in names))
+
+    def test_release_checksum_uses_the_archive_basename_for_colocated_downloads(self) -> None:
+        self.assertIsNotNone(
+            build_release_checksum, "scripts.build_release_checksum is missing"
+        )
+        archive_path = self.root / "dist" / "presentation-studio.zip"
+        checksum_path = self.root / "release" / "presentation-studio.zip.sha256"
+        archive_path.parent.mkdir()
+        archive_path.write_bytes(b"release archive bytes")
+
+        digest = build_release_checksum(archive_path, checksum_path)
+
+        expected_digest = hashlib.sha256(b"release archive bytes").hexdigest()
+        self.assertEqual(digest, expected_digest)
+        self.assertEqual(
+            checksum_path.read_text(encoding="ascii"),
+            f"{expected_digest}  presentation-studio.zip\n",
+        )
+
+    def test_release_checksum_cli_writes_the_requested_asset(self) -> None:
+        archive_path = self.root / "presentation-studio.zip"
+        checksum_path = self.root / "downloads" / "presentation-studio.zip.sha256"
+        archive_path.write_bytes(b"cli release archive")
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(Path(__file__).resolve().parents[1] / "scripts" / "build_release_checksum.py"),
+                str(archive_path),
+                str(checksum_path),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        self.assertIn("PASS: wrote", result.stdout)
+        expected_digest = hashlib.sha256(b"cli release archive").hexdigest()
+        self.assertEqual(
+            checksum_path.read_text(encoding="ascii"),
+            f"{expected_digest}  presentation-studio.zip\n",
+        )
 
 
 if __name__ == "__main__":

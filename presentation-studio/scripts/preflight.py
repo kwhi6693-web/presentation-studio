@@ -239,8 +239,15 @@ def python_module_availability(
     if _safe_executable_path(python_executable) is None:
         return result
     script = (
-        "import importlib.util,json,sys;names=json.loads(sys.argv[1]);"
-        "print(json.dumps({name:importlib.util.find_spec(name) is not None for name in names}))"
+        "import importlib.util,json,sys\n"
+        "names=json.loads(sys.argv[1])\n"
+        "out={}\n"
+        "for name in names:\n"
+        "    try:\n"
+        "        out[name]=importlib.util.find_spec(name) is not None\n"
+        "    except (ImportError,AttributeError,ValueError):\n"
+        "        out[name]=False\n"
+        "print(json.dumps(out))\n"
     )
     try:
         completed = subprocess.run(
