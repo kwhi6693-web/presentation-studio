@@ -2,7 +2,7 @@
 
 Date: 2026-08-21
 
-Status: Approved in chat; awaiting written-spec review
+Status: Approved for implementation
 
 Target repository: `kwhi6693-web/presentation-studio`
 
@@ -83,6 +83,7 @@ After the versioned maintenance PR is merged and verified, update GitHub reposit
 - Description: a concise bilingual or English discovery-oriented summary within GitHub's length limit.
 - Homepage: `https://github.com/kwhi6693-web/presentation-studio/releases/latest`.
 - Topics: a focused set including `codex-skill`, `presentations`, `pptx`, `html-slides`, `pdf`, `infographics`, `diagrams`, `presentation-automation`, `python`, and `github-actions`.
+- Private vulnerability reporting: enable it before the security policy directs external reporters to the private advisory form.
 
 Issues remain enabled. Wiki and Discussions are not changed because there is no evidence that either needs migration or activation as part of this update.
 
