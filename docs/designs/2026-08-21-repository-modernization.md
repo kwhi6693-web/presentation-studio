@@ -1,7 +1,9 @@
 # Repository Modernization Design
 
-Date: 2026-08-21  
-Status: Approved in chat; awaiting written-spec review  
+Date: 2026-08-21
+
+Status: Approved in chat; awaiting written-spec review
+
 Target repository: `kwhi6693-web/presentation-studio`
 
 ## Purpose
