@@ -102,14 +102,14 @@ Issues remain enabled. Wiki and Discussions are not changed because there is no 
 
 Changes with repository behavior will follow strict RED -> GREEN:
 
-1. Add failing repository-contract tests for the new README entry points, required community files, valid Issue Form structure, immutable action pins, and the GitHub-Actions-only Dependabot policy.
-2. Run the focused contract test and record the expected failures.
-3. Add the smallest files and workflow changes that satisfy those contracts.
-4. Re-run the focused suite to GREEN.
-5. Run the complete unit suite, bilingual example verifier, deterministic package build twice, and package verifier.
+1. Add failing behavioral tests for a standard-library `verify_repository_health.py` boundary validator.
+2. Exercise that validator against complete and deliberately broken temporary repository fixtures, covering missing local README link targets, missing community files, malformed Issue Form structure, floating/deprecated official actions, and an over-broad Dependabot ecosystem.
+3. Implement the smallest validator that makes those fixture-driven tests pass, then use it against the real repository after the documentation and configuration files are added.
+4. Review human-facing README and policy prose directly instead of coupling tests to exact wording.
+5. Run the complete unit suite, repository-health verifier, bilingual example verifier, deterministic package build twice, and package verifier.
 6. Confirm documentation-only/community files do not change `dist/presentation-studio.zip` or `checksums.sha256`; if workflow/test changes alter the package unexpectedly, stop and diagnose before commit.
 
-YAML files will be parsed with the repository's available tooling where practical and also validated by GitHub Actions on the draft PR.
+Issue Forms will receive deterministic structural validation from the repository-health verifier and full platform validation from GitHub on the draft PR.
 
 ## Delivery workflow
 
