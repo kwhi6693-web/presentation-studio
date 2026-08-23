@@ -91,6 +91,13 @@ def verify_html(path: Path, language: str) -> dict:
         language_match is not None and language_match.group(1).lower().startswith(expected_lang),
         f"HTML language does not match {language}: {path}",
     )
+    if language == "zh":
+        _require(re.search(r"[\u4e00-\u9fff]", text) is not None, "Chinese HTML has no Chinese text")
+    else:
+        _require(
+            "Presentation Capability Acceptance Report" in text,
+            "English HTML identity text is missing",
+        )
     for token in ("keydown", "ArrowRight", "ArrowLeft", "contenteditable", "@media print", "data:image"):
         _require(token in text, f"HTML contract token is missing ({token}): {path}")
     _require(REMOTE_ASSET.search(text) is None, f"Standalone HTML has a remote asset: {path}")
