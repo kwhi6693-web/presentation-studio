@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import json
 import re
+import tempfile
 import unittest
 from pathlib import Path
 
 try:
-    from scripts.verify_examples import expected_example_paths, verify_all
+    from scripts.verify_examples import ExampleError, expected_example_paths, verify_all, verify_html
 except ImportError:
+    ExampleError = None
     expected_example_paths = None
     verify_all = None
+    verify_html = None
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -171,6 +174,46 @@ class ExampleContractTests(unittest.TestCase):
             with self.subTest(path=product["path"]):
                 self.assertEqual(product["status"], "PASS")
                 self.assertEqual(product["pages"], 5)
+
+    def test_chinese_html_rejects_english_content_with_a_zh_language_tag(self) -> None:
+        self.assertIsNotNone(ExampleError, "example verifier is missing")
+        self.assertIsNotNone(verify_html, "HTML example verifier is missing")
+        source = (
+            ROOT
+            / "examples"
+            / "bilingual-acceptance"
+            / "en"
+            / "presentation-acceptance-en.html"
+        )
+        original = source.read_text(encoding="utf-8-sig")
+        mislabeled = original.replace('<html lang="en">', '<html lang="zh">', 1)
+        self.assertNotEqual(mislabeled, original, "English fixture language tag was not replaced")
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            candidate = Path(temporary_directory) / "presentation-acceptance-zh.html"
+            candidate.write_text(mislabeled, encoding="utf-8")
+            with self.assertRaises(ExampleError):
+                verify_html(candidate, "zh")
+
+    def test_english_html_rejects_chinese_content_with_an_en_language_tag(self) -> None:
+        self.assertIsNotNone(ExampleError, "example verifier is missing")
+        self.assertIsNotNone(verify_html, "HTML example verifier is missing")
+        source = (
+            ROOT
+            / "examples"
+            / "bilingual-acceptance"
+            / "zh"
+            / "presentation-acceptance-zh.html"
+        )
+        original = source.read_text(encoding="utf-8-sig")
+        mislabeled = original.replace('<html lang="zh-CN">', '<html lang="en">', 1)
+        self.assertNotEqual(mislabeled, original, "Chinese fixture language tag was not replaced")
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            candidate = Path(temporary_directory) / "presentation-acceptance-en.html"
+            candidate.write_text(mislabeled, encoding="utf-8")
+            with self.assertRaises(ExampleError):
+                verify_html(candidate, "en")
 
 
 if __name__ == "__main__":
