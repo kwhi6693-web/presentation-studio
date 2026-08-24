@@ -10,6 +10,7 @@ import math
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -31,6 +32,8 @@ COMMIT_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
 MAX_GITHUB_JSON_ATTEMPTS = 3
 GITHUB_RETRY_BACKOFF_SECONDS = 1.0
 MAX_GITHUB_RETRY_DELAY_SECONDS = 5.0
+GIT_ANCESTRY_DEEPEN_STEPS = (32, 128, 512)
+GIT_COMMAND_TIMEOUT_SECONDS = 120
 
 
 class SyncError(RuntimeError):
@@ -40,10 +43,17 @@ class SyncError(RuntimeError):
 class GitHubApiError(SyncError):
     """A redacted terminal GitHub API failure with machine-readable context."""
 
-    def __init__(self, message: str, status: int, response_message: str | None) -> None:
+    def __init__(
+        self,
+        message: str,
+        status: int,
+        response_message: str | None,
+        status_history: tuple[int, ...],
+    ) -> None:
         super().__init__(message)
         self.status = status
         self.response_message = response_message
+        self.status_history = status_history
 
 
 class JsonClient(Protocol):
@@ -166,6 +176,7 @@ class GitHubClient:
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
         request = urllib.request.Request(f"{GITHUB_API}{path}", headers=headers)
+        http_status_history: list[int] = []
         for attempt in range(1, MAX_GITHUB_JSON_ATTEMPTS + 1):
             retry_after: float | None = None
             api_status: int | None = None
@@ -175,6 +186,7 @@ class GitHubClient:
                     payload = json.load(response)
             except urllib.error.HTTPError as error:
                 api_status = error.code
+                http_status_history.append(error.code)
                 response_message = self._response_message(error)
                 category = f"HTTP {error.code}"
                 retryable = error.code == 429 or error.code >= 500 or (
@@ -201,7 +213,12 @@ class GitHubClient:
                 f"attempt{'s' if attempt != 1 else ''}"
             )
             if api_status is not None:
-                raise GitHubApiError(message, api_status, response_message)
+                raise GitHubApiError(
+                    message,
+                    api_status,
+                    response_message,
+                    tuple(http_status_history),
+                )
             raise SyncError(message)
         raise AssertionError("GitHub retry loop exited unexpectedly")
 
@@ -330,12 +347,26 @@ def load_source_lock(path: Path = SOURCE_LOCK_PATH) -> dict:
     return payload
 
 
-def _is_no_common_ancestor_error(error: SyncError, base: str, head: str) -> bool:
+def _github_api_error(error: SyncError) -> GitHubApiError | None:
     cause = error.__cause__
+    return cause if isinstance(cause, GitHubApiError) else None
+
+
+def _is_no_common_ancestor_error(error: SyncError, base: str, head: str) -> bool:
+    cause = _github_api_error(error)
     return (
-        isinstance(cause, GitHubApiError)
+        cause is not None
         and cause.status == 404
         and cause.response_message == f"No common ancestor between {base} and {head}."
+    )
+
+
+def _is_exhausted_server_error(error: SyncError) -> bool:
+    cause = _github_api_error(error)
+    return (
+        cause is not None
+        and len(cause.status_history) == MAX_GITHUB_JSON_ATTEMPTS
+        and all(500 <= status < 600 for status in cause.status_history)
     )
 
 
@@ -359,6 +390,217 @@ def _confirm_repository_commit(
         )
 
 
+def _confirm_compare_commits(
+    source: SourceConfig,
+    base: str,
+    head: str,
+    client: JsonClient,
+) -> None:
+    _confirm_repository_commit(
+        source,
+        "confirm latest release commit exists",
+        base,
+        client,
+    )
+    _confirm_repository_commit(
+        source,
+        "confirm locked commit exists",
+        head,
+        client,
+    )
+
+
+def _git_subprocess_environment() -> dict[str, str]:
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.upper().startswith("GIT_")
+        and key.upper()
+        not in {
+            "GITHUB_TOKEN",
+            "UPSTREAM_GITHUB_TOKEN",
+            "SSH_ASKPASS",
+            "SSH_AUTH_SOCK",
+        }
+    }
+    environment.update(
+        {
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_TERMINAL_PROMPT": "0",
+            "GCM_INTERACTIVE": "Never",
+            "SSH_ASKPASS_REQUIRE": "never",
+        }
+    )
+    return environment
+
+
+def _run_git(
+    repository: Path,
+    arguments: list[str],
+    *,
+    initialized: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    repository_arguments = (
+        ["--git-dir", str(repository / ".git"), "--work-tree", str(repository)]
+        if initialized
+        else ["-C", str(repository)]
+    )
+    return subprocess.run(
+        [
+            "git",
+            "-c",
+            "credential.helper=",
+            "-c",
+            "core.askPass=",
+            *repository_arguments,
+            *arguments,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=_git_subprocess_environment(),
+        timeout=GIT_COMMAND_TIMEOUT_SECONDS,
+    )
+
+
+def _require_git_success(
+    source: SourceConfig,
+    result: subprocess.CompletedProcess[str],
+    operation: str,
+) -> None:
+    if result.returncode != 0:
+        raise SyncError(f"source {source.name}; local Git ancestry fallback; {operation}")
+
+
+def _git_repository_is_shallow(source: SourceConfig, repository: Path) -> bool:
+    result = _run_git(repository, ["rev-parse", "--is-shallow-repository"])
+    _require_git_success(source, result, "unable to inspect shallow repository state")
+    state = result.stdout.strip()
+    if state not in {"true", "false"}:
+        raise SyncError(
+            f"source {source.name}; local Git ancestry fallback; "
+            "invalid shallow repository state"
+        )
+    return state == "true"
+
+
+def _git_ancestry_relation(
+    source: SourceConfig,
+    repository: Path,
+    base: str,
+    head: str,
+) -> str | None:
+    release_ancestor = _run_git(repository, ["merge-base", "--is-ancestor", base, head])
+    if release_ancestor.returncode == 0:
+        return "ahead"
+    if release_ancestor.returncode != 1:
+        raise SyncError(
+            f"source {source.name}; local Git ancestry fallback; "
+            "release ancestry check failed"
+        )
+
+    locked_ancestor = _run_git(repository, ["merge-base", "--is-ancestor", head, base])
+    if locked_ancestor.returncode == 0:
+        return "behind"
+    if locked_ancestor.returncode != 1:
+        raise SyncError(
+            f"source {source.name}; local Git ancestry fallback; "
+            "locked ancestry check failed"
+        )
+
+    merge_base = _run_git(repository, ["merge-base", base, head])
+    if merge_base.returncode == 0:
+        return "diverged"
+    if merge_base.returncode != 1:
+        raise SyncError(
+            f"source {source.name}; local Git ancestry fallback; merge-base check failed"
+        )
+    if not _git_repository_is_shallow(source, repository):
+        return "diverged"
+    return None
+
+
+def _fetch_git_commits(
+    source: SourceConfig,
+    repository: Path,
+    base: str,
+    head: str,
+    depth_argument: str,
+) -> None:
+    result = _run_git(
+        repository,
+        [
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            "--filter=blob:none",
+            depth_argument,
+            "upstream",
+            base,
+            head,
+        ],
+    )
+    _require_git_success(source, result, "git fetch failed")
+
+
+def _local_git_compare_status(source: SourceConfig, base: str, head: str) -> str:
+    if not _valid_commit(base) or not _valid_commit(head):
+        raise SyncError(
+            f"source {source.name}; local Git ancestry fallback; invalid commit SHA"
+        )
+    try:
+        with tempfile.TemporaryDirectory(prefix="presentation-upstream-git-") as temporary:
+            repository = Path(temporary)
+            _require_git_success(
+                source,
+                _run_git(repository, ["init", "--quiet"], initialized=False),
+                "git init failed",
+            )
+            _require_git_success(
+                source,
+                _run_git(repository, ["remote", "add", "upstream", source.repository]),
+                "git remote setup failed",
+            )
+            _fetch_git_commits(source, repository, base, head, "--depth=1")
+            for commit in (base, head):
+                _require_git_success(
+                    source,
+                    _run_git(repository, ["cat-file", "-e", f"{commit}^{{commit}}"]),
+                    "fetched commit validation failed",
+                )
+
+            relation = _git_ancestry_relation(source, repository, base, head)
+            for deepen_by in GIT_ANCESTRY_DEEPEN_STEPS:
+                if relation is not None:
+                    return relation
+                _fetch_git_commits(
+                    source,
+                    repository,
+                    base,
+                    head,
+                    f"--deepen={deepen_by}",
+                )
+                relation = _git_ancestry_relation(source, repository, base, head)
+            if relation is not None:
+                return relation
+
+            _fetch_git_commits(source, repository, base, head, "--unshallow")
+            relation = _git_ancestry_relation(source, repository, base, head)
+            if relation is None:
+                raise SyncError(
+                    f"source {source.name}; local Git ancestry fallback; "
+                    "unable to determine ancestry"
+                )
+            return relation
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired) as error:
+        raise SyncError(
+            f"source {source.name}; local Git ancestry fallback; git execution failed"
+        ) from error
+
+
 def _compare_status(source: SourceConfig, base: str, head: str, client: JsonClient) -> str:
     try:
         payload = _discovery_json(
@@ -368,21 +610,14 @@ def _compare_status(source: SourceConfig, base: str, head: str, client: JsonClie
             f"/repos/{source.owner}/{source.repository_name}/compare/{base}...{head}"
         )
     except SyncError as error:
-        if not _is_no_common_ancestor_error(error, base, head):
+        no_common_ancestor = _is_no_common_ancestor_error(error, base, head)
+        exhausted_server_error = _is_exhausted_server_error(error)
+        if not no_common_ancestor and not exhausted_server_error:
             raise
-        _confirm_repository_commit(
-            source,
-            "confirm latest release commit exists",
-            base,
-            client,
-        )
-        _confirm_repository_commit(
-            source,
-            "confirm locked commit exists",
-            head,
-            client,
-        )
-        return "diverged"
+        _confirm_compare_commits(source, base, head, client)
+        if no_common_ancestor:
+            return "diverged"
+        return _local_git_compare_status(source, base, head)
     status = payload.get("status") if isinstance(payload, dict) else None
     if not isinstance(status, str):
         raise SyncError(f"GitHub comparison for {source.name} has no status")

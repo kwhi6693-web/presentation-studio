@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import subprocess
 import tempfile
 import unittest
 import urllib.error
@@ -459,6 +461,256 @@ class UnrelatedHistoryFallbackTests(unittest.TestCase):
             r"source sample; confirm latest release commit exists; GitHub commit response did not match requested commit",
         ):
             check_sources((self.source,), self.source_lock(), client)
+
+
+class GitAncestryFallbackTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory(prefix="presentation-upstream-git-test-")
+        self.root = Path(self.temporary.name)
+        self.remote = self.root / "upstream.git"
+        self.git_environment = dict(os.environ)
+        self.git_environment.update(
+            {
+                "GIT_AUTHOR_NAME": "Upstream Test",
+                "GIT_AUTHOR_EMAIL": "upstream-test@example.invalid",
+                "GIT_COMMITTER_NAME": "Upstream Test",
+                "GIT_COMMITTER_EMAIL": "upstream-test@example.invalid",
+            }
+        )
+        self.run_git("init", "--bare", str(self.remote))
+        tree = self.run_git("--git-dir", str(self.remote), "mktree", input_text="")
+        self.root_commit = self.run_git(
+            "--git-dir", str(self.remote), "commit-tree", tree, "-m", "root"
+        )
+        self.descendant_commit = self.run_git(
+            "--git-dir",
+            str(self.remote),
+            "commit-tree",
+            tree,
+            "-p",
+            self.root_commit,
+            "-m",
+            "descendant",
+        )
+        self.unrelated_commit = self.run_git(
+            "--git-dir", str(self.remote), "commit-tree", tree, "-m", "unrelated"
+        )
+        self.run_git(
+            "--git-dir",
+            str(self.remote),
+            "update-ref",
+            "refs/heads/linear",
+            self.descendant_commit,
+        )
+        self.run_git(
+            "--git-dir",
+            str(self.remote),
+            "update-ref",
+            "refs/heads/unrelated",
+            self.unrelated_commit,
+        )
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def run_git(self, *arguments: str, input_text: str | None = None) -> str:
+        completed = subprocess.run(
+            ["git", *arguments],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            input=input_text,
+            env=self.git_environment,
+        )
+        return completed.stdout.strip()
+
+    def source(self, repository: str | None = None) -> SourceConfig:
+        return SourceConfig(
+            name="sample",
+            owner="author",
+            repository_name="skill",
+            repository=repository or self.remote.as_uri(),
+            expected_license="MIT",
+            imports=(),
+            preserve=(),
+        )
+
+    @staticmethod
+    def response(payload: dict) -> JsonResponse:
+        return JsonResponse(json.dumps(payload).encode("utf-8"))
+
+    def check_after_compare_failures(
+        self,
+        release_commit: str,
+        locked_commit: str,
+        *,
+        source: SourceConfig | None = None,
+        compare_failures: list[object] | None = None,
+        confirmation_responses: list[object] | None = None,
+    ) -> list[dict]:
+        current = source or self.source()
+        failures = compare_failures or [http_error(504), http_error(504), http_error(504)]
+        confirmations = confirmation_responses or [
+            self.response({"sha": release_commit}),
+            self.response({"sha": locked_commit}),
+        ]
+        responses = [
+            self.response(
+                {
+                    "draft": False,
+                    "prerelease": False,
+                    "tag_name": "v2.0.0",
+                    "html_url": "https://github.com/author/skill/releases/tag/v2.0.0",
+                    "published_at": "2026-08-24T00:00:00Z",
+                }
+            ),
+            self.response({"object": {"type": "commit", "sha": release_commit}}),
+            *failures,
+            *confirmations,
+        ]
+        with patch("scripts.upstream_sync.urllib.request.urlopen", side_effect=responses):
+            return check_sources(
+                (current,),
+                {"sources": [{"name": current.name, "commit": locked_commit}]},
+                GitHubClient(sleeper=lambda _: None),
+            )
+
+    def test_three_504s_use_git_when_release_descends_from_lock(self) -> None:
+        results = self.check_after_compare_failures(
+            self.descendant_commit,
+            self.root_commit,
+        )
+        self.assertEqual(results[0]["status"], "update_available")
+
+    def test_three_504s_use_git_when_lock_descends_from_release(self) -> None:
+        results = self.check_after_compare_failures(
+            self.root_commit,
+            self.descendant_commit,
+        )
+        self.assertEqual(results[0]["status"], "ahead_of_release")
+
+    def test_three_504s_use_git_when_commits_have_no_common_ancestor(self) -> None:
+        results = self.check_after_compare_failures(
+            self.unrelated_commit,
+            self.descendant_commit,
+        )
+        self.assertEqual(results[0]["status"], "update_available")
+
+    def test_three_504s_require_both_commits_in_configured_repository(self) -> None:
+        scenarios = (
+            (
+                "release",
+                [http_error(404)],
+                r"source sample; confirm latest release commit exists; terminal HTTP 404 after 1 attempt",
+            ),
+            (
+                "locked",
+                [self.response({"sha": self.descendant_commit}), http_error(404)],
+                r"source sample; confirm locked commit exists; terminal HTTP 404 after 1 attempt",
+            ),
+        )
+        for missing, confirmations, expected_error in scenarios:
+            with self.subTest(missing=missing), self.assertRaisesRegex(SyncError, expected_error):
+                self.check_after_compare_failures(
+                    self.descendant_commit,
+                    self.root_commit,
+                    confirmation_responses=confirmations,
+                )
+
+    def test_git_fetch_failure_remains_an_error(self) -> None:
+        missing_remote = (self.root / "missing.git").as_uri()
+        with self.assertRaisesRegex(
+            SyncError,
+            r"source sample; local Git ancestry fallback; git fetch failed",
+        ):
+            self.check_after_compare_failures(
+                self.descendant_commit,
+                self.root_commit,
+                source=self.source(missing_remote),
+            )
+
+    def test_git_fallback_isolated_from_hostile_git_environment(self) -> None:
+        sentinel_config_before = self.run_git(
+            "--git-dir", str(self.remote), "config", "--list"
+        )
+        sentinel_refs_before = self.run_git(
+            "--git-dir", str(self.remote), "show-ref"
+        )
+        hostile_environment = {
+            "GIT_DIR": str(self.remote),
+            "GIT_WORK_TREE": str(self.root / "sentinel-worktree"),
+            "GIT_COMMON_DIR": str(self.remote),
+            "GIT_INDEX_FILE": str(self.root / "sentinel-index"),
+            "GIT_OBJECT_DIRECTORY": str(self.remote / "objects"),
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(self.remote / "objects"),
+            "GIT_CONFIG_PARAMETERS": "",
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "credential.helper",
+            "GIT_CONFIG_VALUE_0": "store",
+            "GIT_ASKPASS": str(self.root / "must-not-run-askpass"),
+            "SSH_ASKPASS": str(self.root / "must-not-run-ssh-askpass"),
+            "SSH_AUTH_SOCK": str(self.root / "must-not-use-agent"),
+        }
+        real_subprocess_run = subprocess.run
+        fallback_environments: list[dict[str, str]] = []
+
+        def inspect_fallback_environment(*args: object, **kwargs: object):
+            fallback_environments.append(dict(kwargs["env"]))
+            return real_subprocess_run(*args, **kwargs)
+
+        with patch.dict(os.environ, hostile_environment, clear=False), patch(
+            "scripts.upstream_sync.subprocess.run",
+            side_effect=inspect_fallback_environment,
+        ):
+            results = self.check_after_compare_failures(
+                self.descendant_commit,
+                self.root_commit,
+            )
+
+        self.assertEqual(results[0]["status"], "update_available")
+        self.assertTrue(fallback_environments)
+        for environment in fallback_environments:
+            for variable in hostile_environment:
+                self.assertNotIn(variable, environment)
+            self.assertEqual(environment["GIT_TERMINAL_PROMPT"], "0")
+            self.assertEqual(environment["GCM_INTERACTIVE"], "Never")
+        self.assertEqual(
+            self.run_git("--git-dir", str(self.remote), "config", "--list"),
+            sentinel_config_before,
+        )
+        self.assertEqual(
+            self.run_git("--git-dir", str(self.remote), "show-ref"),
+            sentinel_refs_before,
+        )
+
+    def test_mixed_retry_failures_ending_in_504_do_not_use_git(self) -> None:
+        with self.assertRaisesRegex(
+            SyncError,
+            r"source sample; compare latest release with locked commit; terminal HTTP 504 after 3 attempts",
+        ):
+            self.check_after_compare_failures(
+                self.descendant_commit,
+                self.root_commit,
+                compare_failures=[
+                    http_error(504),
+                    urllib.error.URLError("transport failed"),
+                    http_error(504),
+                ],
+                confirmation_responses=[],
+            )
+
+    def test_ordinary_compare_404_does_not_use_git(self) -> None:
+        with self.assertRaisesRegex(
+            SyncError,
+            r"source sample; compare latest release with locked commit; terminal HTTP 404 after 1 attempt",
+        ):
+            self.check_after_compare_failures(
+                self.descendant_commit,
+                self.root_commit,
+                compare_failures=[http_error(404)],
+                confirmation_responses=[],
+            )
 
 
 class ReleaseDiscoveryTests(unittest.TestCase):
