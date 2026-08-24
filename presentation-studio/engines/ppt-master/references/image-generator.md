@@ -2,7 +2,7 @@
 
 # Image_Generator Reference Manual
 
-Role definition for the **AI image generation path**: convert each active `Acquire Via: ai` row into an optimized prompt, generate the image, and save it to `project/images/`; also defines the `slice` derivation path for AI-generated illustration and decorative-lettering sheets.
+Role definition for the **AI image generation path**: convert each active `Acquire Via: ai` row into an optimized prompt, generate the image, and save it to `project/images/`; also defines the `slice` derivation path for AI-generated illustration, illustrated-icon, and decorative-lettering sheets.
 
 **Trigger**: the Default Generate resource list contains `Acquire Via: ai` or `slice`, or Quick Generate has resolved a required AI/sliced image in active context. Load only when at least one such resource exists.
 
@@ -54,7 +54,7 @@ Every AI image uses one deck-wide rendering, the deck's stable color anchors/sem
 
 | Reference | Loaded |
 |---|---|
-| [`image-renderings/_index.md`](./image-renderings/_index.md) — rendering catalog + auto-selection table | Always (Step 1 below) |
+| [`image-renderings/_index.md`](./image-renderings/_index.md) — complete rendering catalog + objective selection boundary | Always (Step 1 below) |
 | [`image-type-templates/_index.md`](./image-type-templates/_index.md) — type catalog + auto-selection table | Always (Step 1 below) |
 | `image-renderings/<chosen>.md` | After Step 2 resolves the rendering — one preset file, or every exact reference listed for `custom` |
 | `image-type-templates/<chosen>.md` | After Step 3 picks the type per image — only the types actually used |
@@ -93,7 +93,7 @@ Use them as identity anchors. Do not create another user-facing image-color choi
 
 **Quick Generate path**: the main agent resolves one active-context rendering/color set, honoring explicit user values and deciding the rest without interaction. Write it to `image_prompts.json`; create no planning artifacts.
 
-**Hard rule — `custom` catalog basis**: when `image_rendering` is `custom`, first inspect the optional `image_rendering_references` row. If present, read every exact `image-renderings/<id>.md` it lists and synthesize their line, texture, depth, material, and mood guidance under `image_rendering_behavior` before assembling prompts. If absent, the custom is genuinely novel: read no preset file and use `image_rendering_behavior` directly. Never infer or add adjacent references during execution. The deck color-role rows remain authoritative.
+**Hard rule — `custom` catalog basis**: when `image_rendering` is `custom`, first inspect the optional `image_rendering_references` row. If present, read every exact `image-renderings/<id>.md` it lists. Apply one basis under `image_rendering_behavior`, unchanged when that behavior carries it as-is; synthesize several only by their stated line, texture, depth, material, and mood contributions. If absent, read no preset file and use `image_rendering_behavior` directly. Never infer or add adjacent references during execution. The deck color-role rows remain authoritative.
 
 **Declared-inference fallback — when an existing `spec_lock.md` omits the `image_rendering` key** (see [`failure-recovery.md`](../workflows/governance/failure-recovery.md) §2):
 
@@ -101,11 +101,12 @@ This fallback covers a missing key only. An empty or invalid value stops for loc
 
 | Signal | Maps to |
 |---|---|
-| `design_spec.md d. Style` mode + descriptor | Rendering (consult renderings `_index.md` auto-selection table) |
+| `design_spec.md d. Style` mode + descriptor plus intended image jobs | Rendering (compare the complete objective catalog; no keyword or paired style decides the result) |
 | Existing `spec_lock.md colors` rows | Deck color anchors; interpret them with the completed `design_spec.md`, never replace confirmed identity from a second palette |
 | Existing `spec_lock.md icons.library` | Sanity check: chosen rendering should be compatible with the icon library's visual weight |
 
-If rendering inference surfaces multiple candidates, pick the first; do not present another choice after confirmation.
+If rendering inference surfaces multiple candidates, choose the strongest
+whole-deck fit; do not present another choice after confirmation.
 
 If the table returns `custom`, stop and repair the lock: authoring `image_rendering_behavior` is a planning decision this fallback cannot make, and the deck's SVG style prose is not an image-rendering description.
 
@@ -122,7 +123,7 @@ Derive color behavior from the available roles and image context: background / s
 
 For each `Acquire Via: ai` row, use Strategist-owned §VIII/lock by default or the main agent's active-context Quick resource decision. Explicit values remain binding; Quick resolves omissions automatically.
 
-`Layout pattern` is a page-realization preference and is not copied wholesale into the bitmap prompt. Any generation-time subject direction, focal placement, quiet region, or overlay-safety requirement must therefore be present in the row's `Reference`, the matching §IX block, or Quick's active-context visual intent.
+`Layout pattern` is a page-realization preference and is not copied wholesale into the bitmap prompt. When page use depends on stable composition, consume the compact contract already owned by the row's `Reference`, matching §IX block, or Quick active context: subject/quiet zones, boundary or direction, intended overlap/seam, and approximate share only when needed. Do not invent or replace page layout here; return a missing required relationship to its owning decision.
 
 1. **Determine `page_role`** — the owning row's explicit value wins; a blank or omitted value resolves to `local`. In Default Generate, `hero_page` must be Strategist-explicit; in Quick Generate, the main agent may resolve it before acquisition in active context.
 2. **Determine `text_policy`** — the owning row's value wins when set. **Declared-inference fallback for a blank or omitted value**: pick `none` or `embedded` from the row's `Purpose`, `Reference`, and page intent based on whether in-image text serves the page. Long body / data / lists stay in SVG.
@@ -153,7 +154,7 @@ Every assembled prompt follows this paragraph structure. **Write prose, not tag 
 [Deck color behavior — state the core anchors and any context-justified tonal treatment, e.g. "secondary background #F8F9FA provides the breathing field, primary #1E3A5F carries main forms, accent #D4AF37 marks one emphasis; subtle lighter/darker material transitions remain in the same visual family"].
 [Composition — from the chosen type file or §4.1 no-type prose].
 [Image-specific subject — translated from the row's Reference intent into concrete visual nouns].
-[Container note — "composed as a {W}x{H}px image for {page_role} use"; add composition cues only when the page actually needs them. SVG-overlay-reservation cues ("leave the lower band calm — SVG title overlays it", "keep the right third calmer for SVG text") are valid when `page_role: hero_page`, or when §VIII `Reference` / §IX `Layout` explicitly plans native labels, hotspots, lenses, or other SVG overlays inside a `local` image region. Otherwise an opaque `local` image reserves no interior overlay space; a transparent illustration slice is generated as an isolated element and composed with other carriers by SVG].
+[Container note — "composed as a {W}x{H}px image for {page_role} use"; when the owned composition contract exists, carry its subject/quiet zones, boundary/direction, overlap/seam, and optional approximate share into the prose. Reserve an SVG-overlay region for `hero_page`, or for a `local` image only when §VIII `Reference` / §IX `Layout` explicitly plans native labels, hotspots, lenses, or other overlays there. Otherwise an opaque `local` image reserves no interior overlay space; generate a transparent illustration slice as an isolated element for SVG composition].
 [Hard rules — see §5].
 ```
 
@@ -248,32 +249,36 @@ Example opening for a triptych hero:
 
 **When uncertain about field conventions**: read `sources/` before drafting the prompt.
 
-### 4.3 Illustration sheets — one generation, many composable illustration or lettering elements
+### 4.3 Illustration sheets — one generation, many composable illustration, illustrated-icon, or lettering elements
 
-An Illustration Sheet produces compatible transparent **illustration elements**
-or **decorative lettering elements** with matched rendering, deck-color
-treatment, and finish before slicing. Elements may differ in subject,
-silhouette, visual weight, and page job, then combine with backgrounds, native
-shapes, text, photos, other slices, or lettering on any suitable page. The sheet
-generates assets; SVG authors the page composition. A lettering sheet remains
-stable Layer 1 artwork and does not turn page copy into an image.
+An Illustration Sheet generates compatible transparent **illustration**,
+**illustrated-icon**, or **decorative lettering** elements with shared rendering,
+deck-color treatment, and finish. Subjects, silhouettes, visual weights, and page
+jobs may differ; SVG authors the composition after slicing. Lettering remains
+stable Layer 1 artwork, not page copy converted to an image.
 
-**Default — one sheet per compatible visual family (may override when separate generation serves the assets better)**: Group illustration elements or planned marks by a coherent visual identity, not an identical effect recipe. A family may vary subject, silhouette, material, lighting, intensity, and intended visual weight; recurring title/corner ornaments, dominant anchors, supporting figures, and small accents are examples rather than required roles. Split only when cell geometry, detail, quality, or semantic precision materially conflicts. Quantity alone neither requires nor forbids a sheet: a single transparent element may use a keyed `1x1` sheet, while a full-canvas or nontransparent image stays on the normal one-row path (§4.1).
+**Default — batch compatible elements when a shared generation context helps consistency; split when separate generation improves the result**: Plan only useful illustrated-icon cues, normally grouping compatible ones. Group lettering by compatible letterform character and artistic treatment; font name alone does not decide. Split whenever separate generation benefits style, geometry, detail, quality, or semantic precision. A single transparent element may use a keyed `1x1` sheet; full-canvas or nontransparent images use the normal one-row path (§4.1).
 
 **Hard rule**: a sheet is a generation source, not a slide asset. In Default Generate, keep the sheet row out of `spec_lock.md images`; in Quick Generate, retain its generation-only status in active context and the operational manifest. The sheet is never referenced from SVG. Only sliced element rows are placed.
 
-**Sheet prompt convention** (one manifest item, `page_role: local`,
-`image_size` chosen from final placement size; spot sheets use
-`text_policy: none`, lettering sheets use `text_policy: embedded`):
+**Hard rule — separable treatment before keying**: when the intended slice
+excludes a supporting surface, choose a treatment whose complete visible
+geometry can stand alone against the key field. Engraved, etched, debossed,
+inlaid, bas-relief, or other surface-dependent treatments are valid only when
+that carrier belongs in the intended slice; otherwise choose a genuinely
+freestanding treatment. Never define a carrier as necessary to the treatment
+and ask the same prompt to remove it.
 
-- Choose the sheet `aspect_ratio` and `--grid` from the target element shape. Do not default every sheet to `1:1` + a symmetric grid.
-- Lay the elements out in an explicit logical **R×C placement grid, evenly spaced with clear gutters**, each element **centered in its own cell** and isolated. The grid is never drawn: gutters are uninterrupted key background, with no visible cells, panels, divider lines, borders, frames, or alternate gutter color.
-- State the intended cell shape in the prompt: compact square object, tall portrait element, wide landscape vignette, or wide lettering mark. Do not let the model shrink every subject into a centered square sticker.
-- One **flat single-color chroma-key background** across the whole sheet. Choose and state one pure single-channel key (`#00FF00`, `#0000FF`, or `#FF0000`) whose active color does not dominate any element or supporting effect; it is a technical key, not part of the deck palette. Use that same untouched color in every gutter, keep it out of reflections and color spill, and keep paper grain, halftone, vignette, and every other texture inside the elements, never over the background.
+**Sheet prompt convention** — one `page_role: local` manifest item; choose
+`image_size` from final placement size. Spot sheets use `text_policy: none`;
+lettering sheets use `text_policy: embedded`:
+
+- Derive `aspect_ratio` and `--grid` from the target shape, not a universal `1:1` symmetric grid. State an invisible logical **R×C grid** and the cell shape: compact square object, tall portrait element, wide landscape vignette, or wide lettering mark. Center and isolate each element in its cell with even, clear gutters; never draw cells, panels, dividers, borders, frames, or alternate gutter colors. Do not shrink every subject into a square sticker.
+- Use one flat chroma key across the sheet: pure `#00FF00`, `#0000FF`, or `#FF0000`, chosen so its active color does not dominate any element or supporting effect. State the exact HEX; keep it unchanged in all gutters and out of reflections or spill. Grain, halftone, vignette, and other texture stay inside the elements. The key is technical, not part of the deck palette.
 - Shared `deck_rendering` + `color_scheme` as always.
-- **Illustration sheet**: name each intended element and its page or recurring-reuse job; apply the §5.3 `none` cue and include no text, labels, or numbers.
-- **Lettering sheet**: put exactly one named stable string in each cell as the only text and quote every complete character sequence literally in the prompt. Give the shared visual family, communication role, placement/background relationship, relative visual weight, and intended energy, then follow §5.3's controlled artistic-authorship default. Keep artistry inside the glyph through its silhouette, stroke structure, material, texture, depth, and contour-bound light/shadow. Do not add literal topic motifs, scene fragments, icons, detached ribbons, particles, or other surrounding illustrations unless the approved treatment explicitly requests a lettering-plus-illustration lockup. Keep each complete mark and any approved glyph-bound effect inside its cell with clear key-only padding; include no scene, unrelated copy, labels, watermark, or mockup surface.
-- **Delivery floor, not an aesthetic ceiling**: when the chosen lettering treatment or its supporting effects need more footprint, enlarge the cell, change the grid, or use a larger/separate sheet. Do not weaken an approved treatment merely to fit a convenient crop; this geometry rule never raises the expression level selected under §5.3.
+- **Illustration / illustrated-icon sheet**: name each element and its page or recurring-reuse job. For an illustrated icon, state the compact semantic cue that must survive at placement size. Apply the §5.3 `none` cue: no text, labels, or numbers.
+- **Lettering sheet**: exactly one named stable string per cell as the only text; quote each complete sequence literally. Describe the group's compatible letterform character and artistic treatment, then its communication role, placement/background relationship, relative visual weight, and energy. Follow §5.3's controlled artistic-authorship default. Keep artistry glyph-bound through silhouette, stroke structure, material, texture, depth, and contour-bound light/shadow. Add no topic motifs, scene fragments, icons, detached ribbons, particles, or surrounding illustration unless the approved treatment requests a lettering-plus-illustration lockup. Keep each mark and approved glyph-bound effect inside its cell with key-only padding; no scene, unrelated copy, labels, watermark, or mockup surface.
+- **Delivery floor, not an aesthetic ceiling**: enlarge the cell, change the grid, or use a larger/separate sheet when lettering treatment or effects need more footprint. Never weaken an approved treatment to fit a crop; geometry does not raise the §5.3 expression level.
 
 **Cell geometry is designed, not assumed.** `slice_images.py --grid RxC` cuts rows first and columns second. The cell ratio is:
 
@@ -285,22 +290,22 @@ Use that deliberately. On a wide sheet (`16:9`, `21:9`, `4:1`, `8:1`), `1xN` mak
 
 | Target element shape | Sheet plan | Slice grid |
 |---|---|---|
-| Compact objects / badges | `1:1` sheet | `2x2`, `2x3`, or `3x3` |
+| Compact objects / badges / illustrated icons | `1:1` sheet | `2x2`, `2x3`, or `3x3` |
 | Tall side accents / upright objects | wide or square sheet | `1xN`, or any `MxN` whose cells are portrait |
 | Wide banners / horizontal vignettes | wide sheet | `Nx1`, or any `MxN` whose cells are landscape |
 | Large page anchors / dominant cutouts | dedicated sheet matching the silhouette | `1x1` |
 | Decorative words, phrases, or multi-line lettering lockups | wide sheet | `Nx1`, or any `MxN` whose cells fit the planned string shapes |
 
-Within one visual family, create separate sheets per shape family when mixed shapes cannot share a grid with enough room. Keep the family coherent through the same `deck_rendering` and `color_scheme`, not by forcing all cells into one square sheet or prescribing the same effect stack.
+Within one visual family, use separate sheets for shape families that cannot share a roomy grid. Preserve coherence through `deck_rendering` and `color_scheme`, not one forced square sheet or effect stack.
 
-**Resource contract — the sheet and its elements are different row kinds.** A sliced element can only be placed if it exists in the active placeable-resource authority: `spec_lock.md images` in Default Generate or the current agent's prepared resource decision in Quick Generate. Default Generate keeps both row kinds in §VIII under [`strategist-image.md`](./strategist-image.md); Quick Generate resolves the same distinction in active context and its operational manifest without creating planning artifacts:
+**Resource contract — sheets and elements are different row kinds.** A slice is placeable only from `spec_lock.md images` in Default Generate or the current agent's prepared-resource decision in Quick Generate. Default keeps both row kinds in §VIII under [`strategist-image.md`](./strategist-image.md); Quick keeps the distinction in active context and its operational manifest, without planning artifacts:
 
-- **Sheet row** — `Acquire Via: ai`, `Type: Illustration Sheet`, the intent prompt, named as the slice source with its intended cell shape and placement purpose (`Reference: reusable title/corner illustration family`, or `decorative lettering set: exact strings = ...`). It is generated in Step 5 but **never placed on a slide** — keep it **out of** `spec_lock.md images`. Image_Generator resolves the exact `aspect_ratio`, grid, and slice command from this intent.
-- **Element rows** — one per used element, `Acquire Via: slice`, filename matching a `--names` output, `Reference` naming the parent sheet + cell/element. These **are** placed — list every one in the active placeable-resource authority, normally with `crop=no-crop` (a tight-trimmed transparent element should be fit, not cover-cropped). One row may serve several page compositions. Dimensions are filled in after slicing (the preparation pass re-runs `analyze_images.py`). Each row carries an owner-resolved layout recommendation; SVG authoring may realize it as a direct cutout or inside an appropriate container while preserving the resource and crop/content constraints.
+- **Sheet row** — `Acquire Via: ai`, `Type: Illustration Sheet`, named as the slice source with its intent prompt, cell shape, and placement purpose (`Reference: reusable title/corner illustration family`, `illustrated-icon set: cues = ...`, or `decorative lettering set: exact strings = ...`). Step 5 generates it, but it is **never placed** and stays **out of** `spec_lock.md images`. Image_Generator resolves its `aspect_ratio`, grid, and slice command.
+- **Element rows** — one per used element, `Acquire Via: slice`, filename matching `--names`, and `Reference` naming the parent sheet plus cell/element. List each in the placeable-resource authority, normally with `crop=no-crop`; tight transparent slices use fit, not cover-crop. `Type: Illustrated icon` marks a compact semantic image asset, never an SVG library entry. A row may serve multiple pages. Fill dimensions after slicing by rerunning `analyze_images.py`. Each row carries an owner-resolved layout recommendation; SVG may use a direct cutout or suitable container while preserving resource identity and crop/content constraints.
 
-For every sheet that will yield placeable elements, add `slice_grid` and `slice_names` to its `image_prompts.json` item when choosing the geometry. The comma-separated safe PNG basenames are the creation-time marker for the complete required output set. `image_gen.py` validates, preserves, and displays these metadata fields; it does not run the separate slicing command.
+For every placeable-element sheet, add `slice_grid` and `slice_names` to its `image_prompts.json` item with the geometry. The comma-separated safe PNG basenames mark the complete required output set. `image_gen.py` validates, preserves, and displays them; slicing remains a separate command.
 
-**Slice** with [`slice_images.py`](../scripts/slice_images.py) — cells are cut row-major into individual files in `images/`. With `--alpha` they become transparent elements suitable for direct cutout placement or for composition inside a card, evidence frame, label, or other container. Use `--names` (semantic per-cell filenames matching the element rows; the count **must** equal `rows*cols`), `--trim` (tight-crop), `--alpha` (key out the flat ground), `--bg` (the exact key HEX named in the prompt), and `--strict-alpha` (write nothing when deterministic keying checks find an incomplete cut):
+**Slice** with [`slice_images.py`](../scripts/slice_images.py). It cuts row-major into `images/`; `--alpha` yields transparent cutouts usable directly or in containers. Use `--names` (semantic filenames matching element rows; count **must** equal `rows*cols`), `--trim`, `--alpha`, `--bg` with the prompt's exact key HEX, and `--strict-alpha`, which writes nothing when deterministic checks find an incomplete cut:
 
 ```bash
 SHEET_KEY_HEX="#00FF00"  # example only; choose a key absent from every element/effect
@@ -309,15 +314,13 @@ python3 scripts/slice_images.py <project>/images/illus_sheet.png --grid 2x3 \
     --bg "${SHEET_KEY_HEX}" --strict-alpha
 ```
 
-**Three constraints that decide whether it looks good**:
+**Three quality constraints**:
 
-1. **High-contrast flat chroma key.** `image_gen.py` has no transparent-background mode, so choose pure green, blue, or red whose active channel does not dominate the intended element/effect colors, state its exact HEX in the prompt, and pass it unchanged to `--bg`. The pure-key path removes color spill while recovering partial alpha for antialiasing, shadow, and glow. Texture, reflections, or key-color spill over the field still defeat extraction; keep them inside the artwork and away from the chosen key. If the model returns one visually flat chroma field with bounded pixel drift, measure that drift and raise `--tolerance` only enough to absorb it; the complete-boundary `--strict-alpha` gate must still pass. Regenerate or enlarge the sheet rather than placing a non-strict slice when an effect actually reaches an edge; use `--inset` only when an isolated outer gutter needs it.
-2. **Clean invisible grid, or it cuts ugly.** State the exact row/column structure and cell shape without asking the model to draw the grid; `--trim` absorbs smaller placement variance. Fused cells, a scene background, or any flourish/effect crossing its cell makes the parent sheet unusable. Do not generate several sheets or read them back merely to choose a favorite; re-roll only after strict keying failure or user/live-preview feedback exposes an unusable slice, then slice the replacement sheet again.
-3. **Generate only as large as needed.** Each cell is a fraction of the sheet. Pick the smallest sheet size that keeps each sliced cell at least **1.5-2x** the intended display size. `1K` is usually enough for small accents; use `2K` for medium placements; reserve `4K` for large, cropped, or potentially enlarged elements.
+1. **Strict key recovery.** The pure-key path removes spill while recovering partial alpha for antialiasing, shadow, and glow. For a visually flat field with bounded pixel drift, measure it and raise `--tolerance` only enough to absorb it; `--strict-alpha` must still pass. If an effect reaches an edge, regenerate or enlarge instead of placing a non-strict slice. Use `--inset` only for an isolated outer gutter.
+2. **Clean isolated cells.** `--trim` absorbs small placement variance; fused cells, scene backgrounds, or flourishes/effects crossing a cell make the sheet unusable. Do not generate alternatives merely to choose a favorite. Re-roll only after strict keying failure or user/live-preview evidence of an unusable slice, then slice the replacement.
+3. **Enough source pixels.** Use the smallest sheet that keeps each cell at least **1.5-2x** intended display size. `1K` usually covers small accents, `2K` medium placements, and `4K` large, cropped, or potentially enlarged elements.
 
-**Reference — sliced-asset placement is not a constraint**: A transparent slice may remain an unboxed cutout, enter a container, or combine with background fields, native shapes, text, photos, other slices, and decorative lettering. It may repeat unchanged as deliberate title/corner chrome or be recomposed by page. Ordinary editable copy remains separate SVG text. The owner-resolved layout text is an expression recommendation; SVG authoring owns geometry and treatment while preserving resource identity and crop/content constraints.
-
-**Through-line — one family, many page compositions.** Reuse a family wherever it improves hierarchy, rhythm, continuity, or visual character. Exact repetition is valid for stable title/corner chrome; anchors, supporting elements, and accents may instead vary in scale, position, pairing, and content interaction. A large transparent anchor composed by SVG remains `local` / `slice`; use `hero_page` only when one prepared bitmap owns the page composition. Plan either behavior by fit, never as a quota.
+**Placement reference — one family, many page compositions.** A transparent slice may remain unboxed, enter a container, or combine with backgrounds, native shapes, text, photos, other slices, and lettering. Reuse by fit for hierarchy, rhythm, continuity, or character: stable title/corner chrome may repeat exactly; other anchors and accents may vary in scale, position, pairing, and content interaction. Editable copy remains SVG text. Owner-resolved layout text recommends expression; SVG authoring owns geometry and treatment while preserving resource identity and crop/content constraints. A large transparent anchor composed by SVG remains `local` / `slice`; use `hero_page` only when one prepared bitmap owns the page composition. Never apply a quota.
 
 ---
 
@@ -469,7 +472,7 @@ Defaulting an entire `ai` resource list to `none` because "SVG can always overla
 
 **Forbidden — text that may be reworded**: any word that may later change belongs in Layer 2, not Layer 1. Layer 1 is for stable visual identifiers and designed lettering that is part of the image itself.
 
-**Default — controlled, deck-aligned artistic authorship (may override when the user explicitly requests high expression or confirms a strongly expressive direction)**: For decorative lettering, give the model the exact intended string, communication role, placement/background relationship, deck identity, relative visual weight, and desired energy. The resolved rendering, semantic colors, mood, and page hierarchy define the envelope. Without the stated override, keep expression controlled and glyph-native: carry identity through the glyph silhouette, stroke construction, internal material/texture, contour-bound depth/light, and letterform composition; do not translate the topic into literal illustrations or detached decoration around the word. A lettering-plus-illustration lockup is a separate treatment and requires an explicit user request or confirmed design direction. Within the chosen treatment, let the model decide and combine—or omit—the calligraphic gesture, material, dimensionality, texture, lighting, internal hierarchy, and composition; such terms are possibility space, not an effect recipe. Do not flatten the art merely to simplify extraction: §4.3's key field, clear padding, and cell isolation protect delivery without raising the chosen intensity. When fit is uncertain, use the lower effect density; never infer high expression or external motifs from the topic, place, or wording alone. Keep a multi-line lockup as one element when its hierarchy is part of the art.
+**Default — controlled, deck-aligned artistic authorship (may override when the user explicitly requests high expression or confirms a strongly expressive direction)**: For decorative lettering, give the model the exact intended string, communication role, placement/background relationship, deck identity, relative visual weight, and desired energy. The resolved rendering, semantic colors, mood, and page hierarchy define the envelope. Without the stated override, keep expression controlled and glyph-native: carry identity through the glyph silhouette, stroke construction, internal material/texture, contour-bound depth/light, and letterform composition; do not translate the topic into literal illustrations or detached decoration around the word. A lettering-plus-illustration lockup is a separate treatment and requires an explicit user request or confirmed design direction. Within the chosen treatment, let the model decide and combine—or omit—the calligraphic gesture, material, dimensionality, texture, lighting, internal hierarchy, and composition; such terms are possibility space, not an effect recipe. Do not flatten the art merely to simplify extraction: §4.3's separable-treatment gate, key field, clear padding, and cell isolation protect delivery without raising the chosen intensity. When fit is uncertain, use the lower effect density; never infer high expression or external motifs from the topic, place, or wording alone. Keep a multi-line lockup as one element when its hierarchy is part of the art.
 
 **Font choice for in-image text — free description, with the deck typography as one optional reference**
 

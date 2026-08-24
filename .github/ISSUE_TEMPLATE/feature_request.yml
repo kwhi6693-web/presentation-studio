@@ -1,0 +1,57 @@
+name: Feature request / 功能建议
+description: Propose a focused capability or workflow improvement with measurable acceptance criteria.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / 问题
+      description: Describe the user problem without prescribing an implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome / 期望结果
+      description: Explain the observable result and who benefits.
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Product or engine scope / 产品或引擎范围
+      multiple: true
+      options:
+        - Product routing and catalog
+        - PPT Master
+        - Guizang
+        - Frontend Slides
+        - Baoyu
+        - Packaging and installation
+        - Validation and QA
+        - Documentation and repository operations
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered / 已考虑方案
+      description: Include current workarounds and why they are insufficient.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria / 验收标准
+      description: List concrete behaviors that would make the request complete.
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility and release impact / 兼容与发布影响
+      description: Note format, runtime, package, data, or backward-compatibility implications.
+    validations:
+      required: true
