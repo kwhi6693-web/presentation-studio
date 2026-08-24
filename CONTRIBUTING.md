@@ -6,7 +6,7 @@
 
 - Git with a configured GitHub noreply identity.
 - Python 3.11 or newer for repository tests and packaging.
-- Node.js only when changing or validating a Node-based engine path.
+- Node.js 20.9.0 or newer when changing or validating a Node-based engine path.
 - The optional runtimes and modules reported by `presentation-studio/scripts/preflight.py` for the capability being exercised.
 
 Do not install optional providers merely to hide a failed capability probe. Missing optional modules must remain isolated and visible.

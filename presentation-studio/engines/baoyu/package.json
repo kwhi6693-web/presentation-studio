@@ -6,6 +6,9 @@
   "workspaces": [
     "packages/*"
   ],
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "scripts": {
     "test": "node ./scripts/run-node-tests.mjs",
     "test:coverage": "node ./scripts/run-node-tests.mjs --experimental-test-coverage",
@@ -21,7 +24,7 @@
   "dependencies": {
     "pdf-lib": "^1.17.1",
     "pptxgenjs": "^4.0.1",
-    "sharp": "^0.34.5"
+    "sharp": "^0.35.0"
   },
   "overrides": {
     "@xmldom/xmldom": "0.8.13"

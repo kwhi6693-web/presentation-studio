@@ -61,10 +61,11 @@ _PYTHON_PROBE_ARGS = (
 )
 _NODE_PROBE_ARGS = (
     "-e",
-    "process.stdout.write('presentation-studio-node-probe\\n')",
+    "process.stdout.write(JSON.stringify({marker:'presentation-studio-node-probe',version:process.versions.node}))",
 )
 _PYTHON_PROBE_MARKER = b"presentation-studio-python-probe\n"
-_NODE_PROBE_MARKER = b"presentation-studio-node-probe\n"
+_NODE_PROBE_MARKER = "presentation-studio-node-probe"
+_MIN_NODE_VERSION = (20, 9, 0)
 _CHROMIUM_PROBE_MARKER = "PRESENTATION_STUDIO_CHROMIUM_OK"
 _CHROMIUM_PROBE_TITLE = "presentation-studio-probe"
 _CHROMIUM_PROBE_SCRIPT = (
@@ -149,7 +150,42 @@ def probe_python_executable(value: str | None) -> bool:
 
 
 def probe_node_executable(value: str | None) -> bool:
-    return _probe_runtime(value, _NODE_PROBE_ARGS, _NODE_PROBE_MARKER)
+    path = _safe_executable_path(value)
+    if path is None:
+        return False
+    try:
+        completed = subprocess.run(
+            [str(path), *_NODE_PROBE_ARGS],
+            check=False,
+            shell=False,
+            capture_output=True,
+            text=False,
+            timeout=5,
+        )
+        payload = json.loads(completed.stdout.decode("utf-8"))
+        if type(payload) is not dict:
+            return False
+        marker = payload.get("marker")
+        version = payload.get("version")
+        parts = (
+            tuple(int(part) for part in version.split("."))
+            if type(version) is str
+            else ()
+        )
+    except (
+        OSError,
+        subprocess.SubprocessError,
+        UnicodeError,
+        json.JSONDecodeError,
+        ValueError,
+    ):
+        return False
+    return (
+        completed.returncode == 0
+        and marker == _NODE_PROBE_MARKER
+        and len(parts) == 3
+        and parts >= _MIN_NODE_VERSION
+    )
 
 
 def safe_executable_available(value: str | None) -> bool:

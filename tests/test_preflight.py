@@ -95,6 +95,35 @@ class CapabilityPreflightTests(unittest.TestCase):
         with mock.patch.object(PREFLIGHT.subprocess, "run", return_value=completed):
             self.assertFalse(PREFLIGHT.probe_python_executable(sys.executable))
 
+    def test_node_runtime_probe_requires_node_20_9_or_newer(self) -> None:
+        cases = (
+            ("20.8.1", False),
+            ("20.9.0", True),
+            ("21.0.0", True),
+        )
+        for version, expected in cases:
+            completed = mock.Mock(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "marker": "presentation-studio-node-probe",
+                        "version": version,
+                    }
+                ).encode("utf-8"),
+                stderr=b"",
+            )
+            with self.subTest(version=version), mock.patch.object(
+                PREFLIGHT.subprocess, "run", return_value=completed
+            ):
+                self.assertEqual(
+                    PREFLIGHT.probe_node_executable(sys.executable), expected
+                )
+
+    def test_node_runtime_probe_rejects_non_object_payload(self) -> None:
+        completed = mock.Mock(returncode=0, stdout=b"[]", stderr=b"")
+        with mock.patch.object(PREFLIGHT.subprocess, "run", return_value=completed):
+            self.assertFalse(PREFLIGHT.probe_node_executable(sys.executable))
+
     def test_preflight_preserves_boolean_readiness_and_adds_tri_state_evidence(self) -> None:
         modules = {name: False for name in PREFLIGHT.PYTHON_MODULES}
         node_modules = {name: False for name in PREFLIGHT.NODE_MODULES}
@@ -142,7 +171,9 @@ class CapabilityPreflightTests(unittest.TestCase):
                 if command == [python_executable, *PREFLIGHT._PYTHON_PROBE_ARGS]:
                     return completed(PREFLIGHT._PYTHON_PROBE_MARKER)
                 if command == [node_executable, *PREFLIGHT._NODE_PROBE_ARGS]:
-                    return completed(PREFLIGHT._NODE_PROBE_MARKER)
+                    return completed(
+                        b'{"marker":"presentation-studio-node-probe","version":"20.9.0"}'
+                    )
                 if command[0] == python_executable and "importlib.util.find_spec" in command[2]:
                     return completed(b"{}")
                 if command[0] == node_executable and "require.resolve" in command[2]:

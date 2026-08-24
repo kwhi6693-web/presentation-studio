@@ -354,7 +354,7 @@ python presentation-studio/scripts/route.py --json-file route-request.json
 | 运行时或能力 | 用途 | 必需性 | Preflight 证据 |
 |---|---|---|---|
 | Python 3.11+（已测试；优先 bundled runtime） | 推荐、路由、验证、PPTX 工作流 | 核心 | `runtimes.python`, `readiness.pptx_core` |
-| 已解析的 Node.js | Frontend Slides 与 Baoyu | 对相应引擎为核心 | `runtimes.node`, `readiness.baoyu_core` |
+| Node.js 20.9.0+ | Frontend Slides 与 Baoyu | 对相应引擎为核心 | `runtimes.node`, `readiness.baoyu_core` |
 | Office renderer | 原生 Office 渲染检查 | 可选 | `readiness.office_renderer` |
 | Chromium + Playwright | HTML/PDF 导出、浏览器测量与 QA | 可选 | `readiness.chromium`, `capabilities.node.browser_qa` |
 | 图像 Provider 凭据 | 生成式封面、插图和图像资产 | 可选 | 脱敏后的 `readiness.image_provider` |
@@ -745,7 +745,7 @@ The repository also provides six binary acceptance artifacts in the two expandab
 | Runtime or capability | Used for | Requirement | Preflight evidence |
 |---|---|---|---|
 | Python 3.11+ (tested; bundled runtime preferred) | Retrieval, routing, validation, PPTX workflows | Core | `runtimes.python`, `readiness.pptx_core` |
-| Resolved Node.js | Frontend Slides and Baoyu | Core for those engines | `runtimes.node`, `readiness.baoyu_core` |
+| Node.js 20.9.0+ | Frontend Slides and Baoyu | Core for those engines | `runtimes.node`, `readiness.baoyu_core` |
 | Office renderer | Native Office rendering checks | Optional | `readiness.office_renderer` |
 | Chromium + Playwright | HTML/PDF export, browser measurement, QA | Optional | `readiness.chromium`, `capabilities.node.browser_qa` |
 | Image-provider credentials | Generated covers, illustrations, image assets | Optional | Redacted `readiness.image_provider` |
