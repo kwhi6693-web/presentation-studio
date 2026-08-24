@@ -13,6 +13,10 @@ description: One-pass Generate profile for agent-decided preparation, direct SVG
 strategy/confirmation, or directs the agent to proceed to SVG and export.
 Page count alone never activates or blocks this profile.
 
+**Hard rule — Quick paths**: Apply the entry-time `SKILL_DIR` anchor to every
+linked or abbreviated package path below. Expand it inside each tool call;
+never change CWD or inherit a prior shell working directory.
+
 ---
 
 ## 1. Profile Boundary
@@ -184,6 +188,14 @@ python3 ${SKILL_DIR}/scripts/project_manager.py import-sources \
   [projects/<research_slug>.md projects/<research_slug>.facts.json]
 ```
 
+**✅ Checkpoint — every named input landed**: `import-sources` exits 0 as long
+as one input produced a usable artifact, so a partially failed batch still
+succeeds. Read the printed `skipped` reasons before continuing. An entry skipped
+because equivalent content already exists is benign; `path not found`, a failed
+conversion, or no usable Markdown means that source is absent. Re-import or
+supply a converted equivalent for each absent source, or state why the deck
+proceeds without it.
+
 The facts JSON is the sole URL authority, not a download queue.
 `project_manager.py` imports it as an ordinary file and never expands its
 `source_url` values. If normal web-image search is exhausted, follow
@@ -244,24 +256,30 @@ use; otherwise decide which prototypes to use, skip, repeat, reorder, or adapt
 while authoring. Persist no separate template-application artifact. If no
 template was installed, make the same design choices freely.
 
-Before resolving the one-pass design, read the canvas authority and only these
-three choice indexes:
+Before resolving the one-pass design, read this fixed planning-capability batch
+in one pass:
 
 ```
-Read references/canvas-formats.md
-Read references/modes/_index.md
-Read references/visual-styles/_index.md
-Read references/image-renderings/_index.md
+Read ${SKILL_DIR}/references/canvas-formats.md
+Read ${SKILL_DIR}/references/image-layout-spec.md
+Read ${SKILL_DIR}/references/image-layout-patterns.md
+Read ${SKILL_DIR}/references/modes/_index.md
+Read ${SKILL_DIR}/references/visual-styles/_index.md
+Read ${SKILL_DIR}/references/image-renderings/_index.md
+Read ${SKILL_DIR}/templates/icons/README.md
+Read ${SKILL_DIR}/templates/charts/chart-vocabulary.md
+Read ${SKILL_DIR}/templates/tables/table-vocabulary.md
 ```
 
-Resolve the best whole solution from the project brief and index summaries,
-freeze its exact mode/style/rendering ids, then read only those selected preset
-files or custom-basis files. A novel custom reads none. Never open detail files
-to compare candidates, glob a catalog, or let an unselected sibling influence
-the decision. Decide whether AI images are useful as a separate source judgment;
-even when the answer is no, retain the chosen rendering direction for visual
-coherence. Keep the chosen mode, style, rendering, and exact bases in active
-context only.
+This batch is the complete capability map for planning, not a usage checklist:
+zero use of any capability remains valid. Resolve the best whole solution from
+the project brief and loaded decision authorities, freeze its exact
+mode/style/rendering ids, then read only those selected detail files or custom
+bases. A novel custom reads none. Never open unselected detail siblings to
+compare candidates, glob a catalog, or let them influence the decision. Decide
+whether AI images are useful as a separate source judgment; even when the
+answer is no, retain the chosen rendering direction for visual coherence. Keep
+the chosen mode, style, rendering, and exact bases in active context only.
 
 **One-pass decision boundary**: resolve only what is needed to author this deck
 in the current context. Do not print a strategy summary, create a planning
@@ -276,15 +294,24 @@ the roster after the whole-roster check:
 - the canvas, visual direction, wording, intended viewing distance, and effective reading mode: choose `presentation` for distance-first projected or recorded viewing, `balanced` for mixed viewing, or `text` for close content-heavy reading. Take the initial body anchor and sanity band from [`canvas-formats.md`](../../references/canvas-formats.md) § "Typography Scale Start" for the resolved canvas—PPT remains reading-mode-driven, while registered/custom non-PPT canvases use their canvas-derived start—then resolve one concrete typography plan for the delivery target defined by [`shared-standards-core.md`](../../references/shared-standards-core.md) §4.1, never from the authoring host's font inventory, with stable size anchors for title, body, annotation, and every other recurring role the roster uses. When content does not fit, preserve its core message and apply only fitting actions the source/profile invariants permit—restructure, shorten, or split; if none is permitted, surface the unresolved fit instead of shrinking a recurring role. Explicit user, template, fidelity-profile, or resolved-style requirements may call for a deliberate exception;
 - the semantic color roles actually needed by the roster, each with a concrete active-context color anchor, including background/surface, primary/secondary text, dominant/accent, and status roles as applicable. Honor explicit user, installed template/brand, fidelity-profile source-identity, and resolved-style color semantics before deriving only the missing roles that the active profile permits; decide which roles dominate, support, or remain rare, and preserve sufficient contrast for meaning-bearing text. Pair newly authored color-coded states, categories, or relationships with a label, symbol, line, or geometry cue; when fidelity forbids adding one, preserve the source encoding;
 - an ordinary body-content frame and a density judgment for every page, adapted to the canvas and any user / template / style geometry; use `anchor`, `dense`, `breathing`, or an equivalent active-context distinction instead of one uniform fill level;
-- for each page not bound to literal supplied geometry, a primary visual zone and page-scale composition direction tied to its core message; use cards or equal grids when the content relationship calls for them, not as the automatic page grammar;
+- for each page not bound to literal supplied geometry, a primary visual zone and one compact page-scale geometry job tied to its core message—what geometry must organize, without naming a preset or encoding form; keep it only in the transient roster for §3's authoring-time move;
 - for each page, preserve its semantic units, source-stated qualitative relationships, intended entry, and outcome so §3 can make the sole Structure decision before geometry;
-- when useful, a transient deck-level visual motif system with an identity or
+- the resolved visual direction's deck-level shape language under
+  [`visual-styles/_index.md`](../../references/visual-styles/_index.md) §2,
+  retained for page-fit native geometry without selecting an exact preset here;
+- when useful, an additional transient deck-level visual motif system with an identity or
   communication job, a recognizable invariant, and a reuse mode: fixed chrome,
-  adaptive variation, or both; omit it when restraint serves the deck better;
+  adaptive variation, or both; treat restraint as control of visual weight,
+  recurrence, and reuse, not as a reason by itself to omit an evidenced source,
+  identity, or communication motif; omit the system when no motif earns a
+  continuity job or when reuse would add false meaning, compete with the page
+  message, or reduce clarity;
 - the resource decisions needed for immediate preparation. Required operational
   image manifests may carry filenames, page relationship, status, and
-  generation/crop/focal cues, but do not create a general resource roster or an
-  icon-to-page assignment. Keep each selected formula's source LaTeX in active
+  generation/crop/focal cues. When page use depends on stable composition, also
+  retain subject/quiet zones, boundary or direction, intended overlap/seam, and
+  approximate share only when needed. Do not create a general resource roster
+  or icon-to-page assignment. Keep each selected formula's source LaTeX in active
   context for direct marker authoring; retain each selected hyperlink's exact
   absolute URI or 1-based same-deck target; create no formula/link manifest;
 - the implementation path for each resource. An explicit user path wins;
@@ -308,73 +335,103 @@ content requires a clean full-canvas base plus registered RGBA cutout
 a floating cutout may use `#A2-01`. Finish assets before SVG per
 [`image-base.md`](../../references/image-base.md) §2–3.
 
+**Prepared derivative**: create it with `image_treat.py` (blur,
+desaturation/grayscale, duotone, brightness, contrast) under a name separate
+from its source. The canonical file stays intact: a derivative never overwrites
+its source, never becomes another derivative's parent, and never has its output
+equal its input. Derive only after that source is itself final.
+
 **Mandatory — whole-roster rhythm check**: During the same active-context
 resolution, compare neighbors and section arcs to judge whether chapter entries
-visibly reset, extended same-density runs are intentional, extended same-carrier
-or same-topology runs form an intentional semantic sub-arc, repeated dominant
-geometry carries a continuity job, each section follows a mode-fitting
+visibly reset, extended same-density runs are intentional, extended repetitions
+of one carrier or composition move form an intentional page-job arc, repeated
+dominant geometry carries a continuity job, each section follows a mode-fitting
 progression—including framework → explanation/evidence → judgment/action when
 it serves the objective—and the final arc resolves the communication objective
-before a genuine ending lowers information load. Repair
-the transient roster, density, and composition choices in place. This is
+before a genuine ending lowers information load. Same section, equal weight or
+density, one style, and prior-page precedent do not establish a page-job arc.
+Repair the transient roster, density, and composition choices in place. This is
 judgment, not quota; preserve intentional continuity, legitimately all-`dense`
 material, and 1:1/literal order. Add no filler page: a `breathing` page marks a
 meaningful pause—chapter transition, standalone emphasis, or SCQA bridge—and
 must stand alone. Create no artifact, checkpoint, lock, or second
 authoring/review pass.
 
-**Mandatory — capability scan, not a coverage quota**: for every page, consider
-the complete carrier menu once and choose only the forms that communicate its
-content best. A decision to use none of a carrier is valid; skipping the scan
-because Quick is expected to be faster is not.
+**Mandatory — one-pass page carrier resolution, not a coverage quota**: During
+the same transient-roster resolution and before resource preparation or
+coordinates, decide each page's complete mix of background, editable text and
+optional lettering, native geometry and lines, photos/scenes,
+illustrations/icons, and applicable visualizations. Decide their primary,
+structural, and supporting jobs together; do not finish a text/container layout
+and then treat the other families as optional decoration. Only selected image,
+lettering, or illustrated-icon jobs with plausible page roles create image
+resources; ordinary SVG/emoji icons retain their curated-pool boundary.
+Omitting any carrier is valid after this review; Quick speed, resolved style,
+or easier syntax never skips it.
 
-**Reference — carriers compose, not compete**: Any page may combine a suitable subset of background paint, native shapes, editable text, photos/scenes, transparent illustration elements, decorative lettering, icons, and visualizations. Outside explicit requirements, no carrier is mandatory or mutually exclusive; choose the combination that makes the page coherent and visually resolved.
+**Reference — carriers compose, not compete**: Use any suitable subset from the resolved mix; outside explicit requirements, no carrier is mandatory or mutually exclusive. The resolved style controls treatment, visual weight, and recurrence; it never decides carrier eligibility, image source, or the complete native construction vocabulary. A compact icon cue does not discharge a scene, subject, or visual-weight job that a photo or illustration family would serve.
 
 **Hard rule**: Credentials do not decide image need or the initial carrier plan. Do not inspect backend configuration or probe a provider before planning. Web acquisition retains zero-config providers; actual AI generation capability is resolved only during resource preparation, where the declared Quick no-AI replan below owns automated exhaustion.
 
-**Default — visual grounding before a zero-image deck (may override when the user forbids images or charts / native SVG fully carry the visual burden)**: When the audience must recognize, experience, compare, or choose an externally verifiable subject, place, product, or setting, plan supplied/extracted or web images. Prepare AI imagery proactively where invented or deliberately stylized expression materially improves a planned visual job; this may be a complete image or transparent elements composed with other page carriers. This is a semantic decision, not an image-count quota.
+**Default — visual grounding before a zero-image deck (may override when the full-roster carrier review finds no useful image job)**: Honor an explicit no-image requirement. When the audience must recognize, experience, compare, or choose an externally verifiable subject, place, product, or setting, plan supplied/extracted or web images. Prepare AI imagery proactively where invented or deliberately stylized expression materially improves a planned visual job; this may be a complete image or transparent elements composed with other page carriers. A zero-image result remains valid when no image job improves communication. This is a semantic decision, not an image-count quota.
 
-**Default — prepare a composable illustration family when it strengthens the deck (may omit when no page benefits)**: Resolve the family before SVG authoring. Elements may repeat unchanged as title/corner chrome or vary as dominant anchors, supporting figures, and accents on any suitable page. Batch compatible elements through Illustration Sheets, split only for geometry/detail/quality conflicts, and keep final page composition in SVG under [`image-generator.md`](../../references/image-generator.md) §4.3.
+**Mandatory — materialize a selected composable illustration family**: When
+the carrier resolution selects one, resolve the family before SVG authoring.
+Elements may repeat unchanged as title/corner chrome or vary as dominant
+anchors, supporting figures, and accents on any suitable page. Batch compatible
+elements through Illustration Sheets, split only for geometry/detail/quality
+conflicts, and keep final page composition in SVG under
+[`image-generator.md`](../../references/image-generator.md) §4.3.
 
-**Mandatory — proactive AI decorative lettering**: When the user has not
-forbidden AI, scan the frozen roster for display strings
-anywhere in the deck. Exactly two questions decide eligibility: is that wording
-stable, and would an artistic treatment communicate better than native type?
-Page role, string length, line count, and kind of noun never filter candidates —
+**Mandatory — materialize selected AI illustrated-icon jobs**: When the carrier
+resolution selects them and the user has not forbidden AI, prepare useful cues
+as transparent slices under `images/`. Leave grouping, count, and coexistence
+with SVG icons to the page and deck fit under
+[`image-generator.md`](../../references/image-generator.md) §4.3; apply no
+coverage quota and never treat the slices as SVG inventory.
+
+**Mandatory — proactive decorative-lettering capability scan**: During that same one-pass
+carrier resolution, when the user has not forbidden AI, scan the frozen roster
+for display strings anywhere in the deck. Two questions expose candidates: is
+that wording stable, and could an artistic treatment plausibly communicate
+better than native type? Passing both exposes a possible AI visual job; it does
+not select lettering or add AI by itself. Page role, string length, line count,
+kind of noun, and resolved style never pre-filter candidates —
 a cover hook, chapter word, place or product name, dish or exhibit name, year,
 hero number, pull quote, or recurring motif word all qualify when both answers
 are yes. Read any such list as examples, never as the set of allowed cases; a
 two-character mark, an eight-character phrase, and a two-line lockup are equally
 valid, and a phrase is never trimmed toward one or two characters to feel more
 "wordmark-like". Set over photography or a busy field is often exactly where
-native type reads pasted-on. Eligibility is wide but use stays selective: build
-one small coherent set for the deck rather than lettering every heading, and
-keep a native title wherever the page needs a searchable, selectable, or
-outline-visible heading, with the lettering as its display layer.
-If a suitable set exists, prepare it without
-a separate request: preserve the exact approved strings, use one ordinary AI
-item for a single mark or group several marks by compatible visual family and
-batch each family through its own Illustration Sheet and transparent slices.
+native type reads pasted-on. Compare every candidate inside the complete page
+and deck carrier mix, then select any coherent set whose treatment wins that
+fit; selecting none remains valid and needs no skip explanation or coverage
+quota. For every selected mark, keep a native title wherever the page needs a
+searchable, selectable, or outline-visible heading, with the lettering as its
+display layer. Prepare the selected set without a separate request: preserve
+the exact approved strings, use one ordinary AI
+item for a single mark or group compatible marks through Illustration Sheets
+and transparent slices. Let the intended character and treatment guide grouping.
 Give the model the marks' role, placement/background relationship, relative
 visual weight, and energy; apply `image-generator.md` §5.3's
-controlled-default/high-expression boundary. Split a family
-only when its cell geometry or quality needs conflict, and keep ordinary
+controlled-default/high-expression boundary. Split when geometry, quality, or
+the intended treatment benefits, and keep ordinary
 title/chrome copy native. A prepared wordmark
 and an editable title are not mutually exclusive:
 one page may carry the wordmark as its display layer while its subtitle, chrome,
 and body stay native text, so a wish to keep that wording editable is answered
 by the native layer rather than by dropping the lettering. AI permission is not
-coverage: never invent or alter copy, or create lettering merely
-to justify AI usage. Once an existing string passes both eligibility questions,
-skip it only when the user forbade AI; do not add another disqualifier. Actual
-generation capability is resolved during resource preparation, not eligibility.
+coverage: never invent or alter copy, or create lettering merely to justify AI
+usage. Actual generation capability is resolved during resource preparation,
+after selection rather than during candidate discovery.
 
 | Communication job | Available carrier |
 |---|---|
 | Real subject, place, product, evidence, atmosphere, or scene benefits from visual grounding | Supplied/extracted, web, AI, or sliced image |
 | Reusable title/corner decoration, a dominant illustrated anchor, supporting figure, or accent strengthens one or more page compositions | A coherent AI illustration family prepared as transparent `slice` assets and combined freely with other carriers |
-| A compact semantic cue clarifies a category, process, KPI, state, navigation item, or real brand | Prepared project-local icon |
-| Editable geometry can express a relationship, flow, emphasis, callout, symbol, or diagram | Basic SVG primitive, exact Office preset, Boolean result, then necessary freeform |
+| A compact semantic cue clarifies a category, process, KPI, state, or navigation item | Prepared project-local SVG/emoji icon, an illustrated-icon `slice`, or a coherent combination |
+| A real company, product, service, or social brand must appear as itself | Prepare the exact brand mark from `simple-icons` or supplied project assets as needed; it is not a user-facing library choice |
+| Editable geometry can express a relationship, flow, emphasis, callout, symbol, or diagram | Page-fit contours from the full native vocabulary, then their simplest exact authoring forms; independent composition when possible, required Boolean next, necessary freeform last |
 | Values, categories, time, weights, or duration determine mark geometry | Value-driven chart |
 | Sequence, hierarchy, role, region, or relationship determines page-local topology | Qualitative structure |
 | Rows, columns, cells, headers, merges, and alignment form the information model | Cell-grid table |
@@ -384,31 +441,21 @@ generation capability is resolved during resource preparation, not eligibility.
 
 This carrier menu does not satisfy or replace the per-page Structure decision in §3.
 
-**Mandatory — per-image source decision, never inherited from the resolved style**: Outside Image to PPTX, whose closed page surface owns its reconstruction assets, decide each page image's source separately — supplied/extracted, web, AI, or slice. Prefer a supplied/extracted asset that already carries authority; use web when an externally verifiable subject must appear as itself; use AI when invented or deliberately stylized expression matters more than documentary identity. Mixed sources across one deck are normal.
+**Mandatory — per-image source decision, never inherited from the resolved style**: During that same carrier resolution, outside Image to PPTX whose closed page surface owns its reconstruction assets, decide each selected page image's source separately — supplied/extracted, web, AI, or slice. Prefer a supplied/extracted asset that already carries authority; use web when an externally verifiable subject must appear as itself; use AI when invented or deliberately stylized expression matters more than documentary identity. Mixed sources across one deck are normal.
 
 Resolving one visual style, `Illus.` propensity, or generated-image rendering resolves how imagery **looks**; it resolves the source for no page. A named place, building, product, artwork, person, or other externally verifiable subject stays a web/supplied candidate no matter how illustrative the deck looks. When such a subject is deliberately not shown as itself, state that choice and its reason in the final report rather than leaving it implicit.
 
-**Visualization recall — optional Chart/Table reference**: When a reusable
-Chart/Table reference would help, run recall with 3–8 English semantic tags.
-Use its default catalog search; add `--family chart|table` only when the page's
-information model is already certain. Do not run recall for qualitative shape
-composition.
-
-```bash
-python3 skills/ppt-master/scripts/visualization_recall.py recall \
-  --page P03 \
-  --tag "time series" \
-  --tag "three metrics" \
-  --tag "direction over time" \
-  --limit 6
-```
-
-Read the result unfiltered and apply
-[`visualization-recall.md`](../../scripts/docs/visualization-recall.md)'s
-low-confidence semantic fallback before retaining `no-template-match`. Choose at most one primary
-Chart/Table `family/key` for a page, validate it with `visualization_recall.py validate`,
-and keep its short purpose only in active context. The reference remains
-flexible: it does not lock final type, geometry, style, or native output.
+**Mandatory — complete Chart/Table capability review**: During that same
+carrier resolution, compare every page's information model against every entry
+in the already-loaded Chart and Table expression vocabularies. These
+complete capability maps expose what exists; their descriptions do not rank
+candidates or replace judgment from the actual information, and they are
+neither usage quotas nor whitelists. Do not select a catalog reference for
+qualitative shape composition. Choose at most one primary Chart/Table
+`family/key` for a page, validate it with `visualization_recall.py validate`,
+and keep its short purpose only in active context. Retain `no-template-match`
+when none fits. The reference remains flexible: it does not lock final type,
+geometry, style, or native output.
 Describe an embedded child Chart/Table and every qualitative relationship in
 the page's active decision rather than selecting another primary reference.
 Actual information models determine the loaded execution branches. Give every independent
@@ -423,13 +470,13 @@ Prepare only the resource paths needed by the decided pages:
 |---|---|
 | Supplied/extracted image | Copy the selected file into `images/`; preserve its factual/provenance context and use the measured file rather than an invented substitute |
 | Image-to-PPTX reconstruction asset | In Codex, preserve identity graphics through an exact vector, deterministic redraw, sufficient source asset, or reference-based high-resolution reconstruction; keep data graphics native-and-verified or exact. For scene imagery, build the minimum registered clean-base/midground/subject/foreground group; batch padded-bbox-disjoint objects into one shared plate, then split them with grid slicing or independent nested-SVG bbox crops |
-| Bundled/custom icon | Follow the [icon library contract](../../templates/icons/README.md), choose one coherent primary library, sync a useful project pool covering recurring semantics and likely page-local needs without assigning icons to pages, and choose from that prepared pool during SVG authoring |
+| Bundled/custom/brand SVG icon | Follow the [icon library contract](../../templates/icons/README.md), choose at most one coherent primary generic library when generic icons are useful, sync a project pool covering recurring semantics and likely page-local needs without assigning icons to pages, and add `simple-icons` marks only when actual content names the corresponding brand |
 | Formula | Create no resource file. Retain the exact source LaTeX, then choose ordinary text, an inline native marker, or a block native marker under §3; the registered SVG preview is discarded by native export |
 | AI image | Follow `image-base.md` + `image-generator.md`; apply only the chosen rendering preset or exact custom bases, never blend unselected catalog identities, and keep `image_prompts.json` plus its human-readable sidecar |
 | Web image | Follow `image-base.md` + `image-searcher.md`; keep query/status data and `image_sources.json`, including any required on-slide attribution |
-| Composable illustration / lettering slice | Generate or obtain the parent sheet, run `slice_images.py --trim --alpha --bg KEY_HEX_FROM_PROMPT --strict-alpha`, and place only outputs from a successful strict cut; one illustration element may serve several pages, while a lettering sheet names every exact stable string and contains no scene or page chrome |
+| Composable illustration / illustrated-icon / lettering slice | Generate or obtain the parent sheet, run `slice_images.py --trim --alpha --bg KEY_HEX_FROM_PROMPT --strict-alpha`, and place only outputs from a successful strict cut. Slices remain under `images/` and may serve several pages; each lettering sheet still names every exact stable string assigned to it |
 | Registered reconstruction group | Follow `image-generator.md` §4.4; keep full-canvas members registered with `crop=no-crop`, and materialize every required shared-plate member as an independent picture object |
-| Visualization | Keep Chart values, Table cell topology, and chosen treatment in active context; load the applicable Chart/Table authority in §3 and write native replacement metadata only for an independently selected native-ready object |
+| Visualization | Keep Chart values, Table cell topology, and chosen treatment in active context; load the applicable Chart/Table authority in §3 and write native replacement metadata for every supported chart and pure text grid, which are native-ready by default |
 
 **Hard rule — planned slice closure**: Every placeable-element sheet carries `slice_grid` plus comma-separated `slice_names` in `image_prompts.json`. Deterministically enumerate those basenames and require every `images/<name>.png` after an exit-0 `slice_images.py --strict-alpha` run before SVG authoring; a `Generated` parent sheet never satisfies its named outputs. A nonzero slice run returns the parent to image preparation: correct only an evidenced key/tolerance mismatch, then enlarge cells or split incompatible shape families and regenerate when content reaches a cell edge. Repeating the same failing grid is not recovery. An explicitly selected manual path retains the marker, sets the affected item to `Needs-Manual` with `last_error`, and blocks Quick SVG/export until every named output is supplied and validated. Exhausted automated AI generation or dependent slicing instead follows the no-AI replan below; never retain an unresolved AI/slice row merely to continue.
 
@@ -476,29 +523,31 @@ not route among them one file at a time:
 [`shared-standards-core.md`](../../references/shared-standards-core.md),
 [`svg-effects.md`](../../references/svg-effects.md),
 [`native-shape-authoring.md`](../../references/native-shape-authoring.md),
+[`preset-shape-vocabulary.md`](../../references/preset-shape-vocabulary.md),
 [`semantic-svg.md`](../../references/semantic-svg.md),
 and [`executor-structure.md`](../../references/executor-structure.md). Retain
 only the mode/style detail files selected during one-pass design resolution and
-realize that chosen direction. Exact `*_references` define the complete basis
-of a custom synthesis; a genuinely novel custom follows its resolved behavior
-without reading or inventing a nearby preset.
+realize that chosen direction. Exact `*_references` define the catalog material
+actually used by a custom: apply one basis under its behavior, synthesize several
+by their stated contributions, or follow the behavior directly when none exist.
 
 Do not load `executor-base.md`: it owns Default's persisted-plan handoff,
 first-page gate, and completion routing. Excluding that file is not a capability
 exclusion; Quick loads the shared and conditional execution authorities here
-directly. When any image exists, read once before the first affected
-page and reuse throughout the valid execution context:
-[`executor-image.md`](../../references/executor-image.md),
-[`image-layout-spec.md`](../../references/image-layout-spec.md),
-[`image-layout-patterns.md`](../../references/image-layout-patterns.md), and
-[`svg-image-embedding.md`](../../references/svg-image-embedding.md); add
+directly. Reuse the already-loaded image-layout authorities. When any image
+exists, read once before the first affected page and reuse throughout the valid
+execution context: [`executor-image.md`](../../references/executor-image.md)
+and [`svg-image-embedding.md`](../../references/svg-image-embedding.md); add
 [`executor-web-image.md`](../../references/executor-web-image.md) for a placed
 `Status: Sourced` image or filename recorded in `image_sources.json`.
 Reread only after a known file change or context invalidation.
 
-`executor-structure.md` is loaded once before all SVG authoring so Quick cannot
-omit shape-composition reasoning. Reuse it throughout the valid execution
-context; reread only after a known file change or context invalidation.
+`executor-structure.md` is loaded once before all SVG authoring so every
+`Structure=yes` result can apply its qualitative topology grammar.
+`native-shape-authoring.md` independently owns contour selection and compound
+page geometry for both Structure results. Reuse both throughout the valid
+execution context; before P01, read the complete preset vocabulary once, then
+reread only after a known file change or context invalidation.
 
 **Mandatory — per-image-page composition decision**: For every page with one
 or more images, after its content and communication move are
@@ -521,12 +570,12 @@ whole-object carrier, and author canonical SVG `<a href>` under
 [`native-hyperlinks.md`](../../references/native-hyperlinks.md). Never guess an
 unknown destination.
 
-Image to PPTX replaces this open composition decision for its canonical page
-frame: preserve the source geometry, restore text natively, preserve
-source-graphic identity through the prepared exact or reconstructed asset, and
-use the active-context registered layer/plate stack for scene imagery. Run the
-ordinary decision only for an additional non-source image whose placement is
-not already fixed by that surface.
+Image to PPTX replaces the open image-composition and page-geometry decisions
+for its canonical page frame: preserve the source geometry, restore text
+natively, preserve source-graphic identity through the prepared exact or
+reconstructed asset, and use the active-context registered layer/plate stack
+for scene imagery. Run either ordinary decision only for additional non-source
+content whose placement or geometry is not already fixed by that surface.
 
 **Mandatory — per-page Structure decision**: after the current page's content
 and communication move are determined, but before choosing any geometry or
@@ -541,6 +590,20 @@ artifact, spec, lock, manifest, or extra pass.
 This decision is mandatory on every page and cannot be satisfied by the
 capability menu, visualization recall, template geometry, or a later check.
 
+**Mandatory — independent per-page geometry move**: after the Structure result
+and any applicable topology resolve, apply
+[`native-shape-authoring.md`](../../references/native-shape-authoring.md) §2.1
+to the transient geometry job, actual content, retained deck shape language,
+resolved style, and complete loaded native vocabulary before writing
+coordinates. Select through direct semantic comparison; use `describe --compact` only when objective geometry
+facts could change a serious candidate decision. This move owns the exact-fit
+geometry gate, independent relationship / carrier fit,
+contour-family / exact-result choice, reader effect for a generic or undrawn
+result, running actual-geometry signature, and materialization boundary. A
+primitive remains valid when it wins this comparison; there is no preset quota.
+Apply the move to both `no` and `yes`; keep the current decision in active
+context and never change the Structure result.
+
 | Deterministic trigger | Additional authority |
 |---|---|
 | A selected primary Chart/Table `family/key` | [`executor-visualization.md`](../../references/executor-visualization.md), then the matching Chart/Table authority |
@@ -548,14 +611,14 @@ capability menu, visualization recall, template geometry, or a later check.
 | Any actual row × column fact grid | [`executor-table.md`](../../references/executor-table.md) |
 | Any mathematical notation that may require native math | [`native-formula.md`](../../references/native-formula.md) before choosing ordinary text, inline native math, or block native math |
 | Any external or same-deck click hyperlink | [`native-hyperlinks.md`](../../references/native-hyperlinks.md) before authoring its inline or whole-object SVG anchor |
-| A used preset pattern fill, or one independent Chart/Table object selected as native-ready in active context | [`native-data-interface.md`](../../references/native-data-interface.md) before drawing that object |
+| A used preset pattern fill, or one independent Chart/Table object resolved as `<object-key>=yes` in active context | [`native-data-interface.md`](../../references/native-data-interface.md) before drawing that object |
 | Any data-driven chart geometry | [`verify-charts.md`](../stages/verify-charts.md) after the complete roster and before the one final checker |
 
 Chart/Table reference and final information model are independent loading
 signals; load every applicable authority. Selection never makes an object
 native-ready or replaces the per-page Structure decision.
 
-Keep the core's shared visual-quality / leading defaults and `svg-effects.md` §6.1 Visual Job Router active while authoring. Explicit user/template requirements and the resolved style override compatible aesthetic defaults, never technical Required / Forbidden boundaries.
+Keep the core's shared visual-quality / leading defaults and `svg-effects.md` §6.1 job diagnostic active while authoring, with its Visual Job Router as recall. Explicit user/template requirements and the resolved style override compatible aesthetic defaults, never technical Required / Forbidden boundaries, carrier eligibility, or native capability discovery. Treat selected style composition examples as generative vocabulary rather than a finite layout menu.
 
 **Per-page execution anchors**: apply the transient core-message, typography-role, semantic-color, body-frame, density, and composition anchors resolved in §2 while authoring; they guide the current run without creating a persisted planning artifact.
 
@@ -592,9 +655,11 @@ under [`shared-standards-core.md`](../../references/shared-standards-core.md)
 §4.1; do not depend on a lock or generated font asset.
 
 **Generation pacing**: the current main agent hand-writes the SVG roster in
-order. Use P01 as the visual-system calibration baseline and continue
-directly through the remaining pages without a first-page checker or
-confirmation stop. When a motif was
+order. Use P01 to calibrate visual identity and cover-specific expression; use
+the first page that exercises ordinary content relationships to calibrate
+content geometry and carrier integration. Neither becomes a reusable topology
+template. Continue directly without a first-page checker or confirmation stop.
+When a motif was
 resolved, follow its reuse mode: exact repetition is valid for deliberate
 title/corner chrome, while adaptive motifs may vary scale, crop, density,
 position, or content interaction. Keep this choice only in active context;
@@ -630,7 +695,17 @@ python3 ${SKILL_DIR}/scripts/svg_quality_checker.py <project_path> \
   --quick-generate --stage final --json
 ```
 
-Fix every blocking error and rerun the same command. Then export:
+Fix every blocking error and rerun the same command.
+
+**Mandatory — final carrier-receipt review**: Review the factual
+`[CARRIERS]` summary against the retained page jobs, deck shape language, any
+adopted motif, resource roles, and running geometry signatures before export.
+Counts and diversity are not quotas; zero preset use alone neither proves fit
+nor establishes a defect. When the summary contradicts an active decision, read
+only the affected `files[].info.carrier_receipt` rows from the current report,
+repair those pages in one consolidated pass, and rerun the same final checker.
+
+Then export:
 
 When Speaker Notes is enabled, load
 [`executor-notes.md`](../../references/executor-notes.md) after the passing final
@@ -641,6 +716,12 @@ roster. Then run:
 ```bash
 python3 ${SKILL_DIR}/scripts/total_md_split.py <project_path>
 ```
+
+**Success criterion**: per-slide Markdown files exist under
+`<project_path>/notes/` and cover every published slide. The command exits
+non-zero when a slide has no notes or a write fails; repair `notes/total.md` and
+rerun before animations or export, and never let leftover files from an earlier
+run satisfy this criterion.
 
 Run [`customize-animations`](../stages/customize-animations.md) after that notes
 pass when the active-context outcome or an existing sidecar triggers it. Resolve
@@ -695,9 +776,12 @@ or lock.
 ## ✅ Quick Generate Complete
 
 - [x] All required source/resource preparation is complete
-- [x] One mode and visual style were resolved, and every catalog source actually used was read
+- [x] The fixed planning-capability batch was read before the roster, and every selected detail source was read
+- [x] The complete 187-name native preset vocabulary was read before P01; each page chose from that full capability surface, with objective candidate details inspected only when needed
 - [x] Every page considered suitable carrier combinations without a coverage quota or single-carrier assumption
-- [x] Image need was decided independently of credentials; any zero-image deck is backed by an explicit no-image requirement or a roster whose visual burden is fully carried by charts / native SVG
+- [x] The proactive decorative-lettering capability scan ran before carrier selection; every selected lettering job entered an AI item or lettering sheet/slice job, and zero selected jobs remained valid
+- [x] The deck shape language remained active independently of any optional motif; every page not bound to literal supplied geometry carried its geometry job into authoring, resolved each drawn contour from its exact family and job, retained the reader effect for any generic or undrawn result, and compared its actual geometry signature before the next page; repetition served the same page job / relationship or continuity motif
+- [x] Image need was decided independently of credentials; any zero-image deck followed a complete roster review in which no image job improved communication or the selected non-image carriers fully carried it
 - [x] Every `slice_names` output exists after an exit-0 strict-alpha run, and no page whose chosen composition depends on a slice was authored or exported without it
 - [x] Every image-bearing page made its one pre-geometry composition decision
 - [x] Every image decided its own source from that page's subject and job — not inherited from the resolved visual style — and every externally verifiable subject deliberately not shown as itself was stated with its reason
@@ -707,6 +791,7 @@ or lock.
 - [x] Resolved SVG pages and their project-local references exist
 - [x] Every role declared by an installed template spec is locatable in the finished pages, or its non-use is deliberate — checked per installed spec, not from memory
 - [x] Every triggered capability-specific preparation and pre-checker verification completed
+- [x] The current final report's carrier receipt was compared with the retained page jobs and any factual contradiction was repaired before export, without treating counts as quotas
 - [x] The lockless final SVG quality report passes and matches the current SVGs
 - [x] Enabled notes were validated/generated and split; enabled custom motion ran through its owning stage
 - [x] One native PPTX exists under `exports/` or the explicit output path
