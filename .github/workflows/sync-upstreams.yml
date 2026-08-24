@@ -55,8 +55,6 @@ jobs:
           echo "url=$existing_pr" >> "$GITHUB_OUTPUT"
       - name: Stage latest stable upstream releases
         run: python scripts/upstream_sync.py sync --all --report artifacts/upstream-sync-report.json
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Run unit and repository contract tests
         run: python -m unittest discover -s tests -v
       - name: Verify bilingual example products

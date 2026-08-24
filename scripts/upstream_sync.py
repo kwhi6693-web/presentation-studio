@@ -37,6 +37,15 @@ class SyncError(RuntimeError):
     """A redacted, user-actionable upstream synchronization failure."""
 
 
+class GitHubApiError(SyncError):
+    """A redacted terminal GitHub API failure with machine-readable context."""
+
+    def __init__(self, message: str, status: int, response_message: str | None) -> None:
+        super().__init__(message)
+        self.status = status
+        self.response_message = response_message
+
+
 class JsonClient(Protocol):
     def get_json(self, path: str) -> dict: ...
 
@@ -137,6 +146,15 @@ class GitHubClient:
             MAX_GITHUB_RETRY_DELAY_SECONDS,
         )
 
+    @staticmethod
+    def _response_message(error: urllib.error.HTTPError) -> str | None:
+        try:
+            payload = json.loads(error.read(4096).decode("utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return None
+        message = payload.get("message") if isinstance(payload, dict) else None
+        return message if isinstance(message, str) else None
+
     def get_json(self, path: str) -> dict:
         if not path.startswith("/"):
             raise SyncError("GitHub API path must be absolute")
@@ -150,10 +168,14 @@ class GitHubClient:
         request = urllib.request.Request(f"{GITHUB_API}{path}", headers=headers)
         for attempt in range(1, MAX_GITHUB_JSON_ATTEMPTS + 1):
             retry_after: float | None = None
+            api_status: int | None = None
+            response_message: str | None = None
             try:
                 with urllib.request.urlopen(request, timeout=self._timeout) as response:
                     payload = json.load(response)
             except urllib.error.HTTPError as error:
+                api_status = error.code
+                response_message = self._response_message(error)
                 category = f"HTTP {error.code}"
                 retryable = error.code == 429 or error.code >= 500 or (
                     error.code == 404 and self._is_release_discovery_path(path)
@@ -174,10 +196,13 @@ class GitHubClient:
             if retryable and attempt < MAX_GITHUB_JSON_ATTEMPTS:
                 self._sleeper(self._retry_delay(attempt, retry_after))
                 continue
-            raise SyncError(
+            message = (
                 f"terminal {category} after {attempt} "
                 f"attempt{'s' if attempt != 1 else ''}"
             )
+            if api_status is not None:
+                raise GitHubApiError(message, api_status, response_message)
+            raise SyncError(message)
         raise AssertionError("GitHub retry loop exited unexpectedly")
 
     def download(self, path: str, destination: Path) -> None:
@@ -305,10 +330,59 @@ def load_source_lock(path: Path = SOURCE_LOCK_PATH) -> dict:
     return payload
 
 
-def _compare_status(source: SourceConfig, base: str, head: str, client: JsonClient) -> str:
-    payload = client.get_json(
-        f"/repos/{source.owner}/{source.repository_name}/compare/{base}...{head}"
+def _is_no_common_ancestor_error(error: SyncError, base: str, head: str) -> bool:
+    cause = error.__cause__
+    return (
+        isinstance(cause, GitHubApiError)
+        and cause.status == 404
+        and cause.response_message == f"No common ancestor between {base} and {head}."
     )
+
+
+def _confirm_repository_commit(
+    source: SourceConfig,
+    operation: str,
+    commit: str,
+    client: JsonClient,
+) -> None:
+    payload = _discovery_json(
+        source,
+        operation,
+        client,
+        f"/repos/{source.owner}/{source.repository_name}/commits/{commit}",
+    )
+    resolved = payload.get("sha") if isinstance(payload, dict) else None
+    if not isinstance(resolved, str) or resolved.lower() != commit.lower():
+        raise SyncError(
+            f"source {source.name}; {operation}; "
+            "GitHub commit response did not match requested commit"
+        )
+
+
+def _compare_status(source: SourceConfig, base: str, head: str, client: JsonClient) -> str:
+    try:
+        payload = _discovery_json(
+            source,
+            "compare latest release with locked commit",
+            client,
+            f"/repos/{source.owner}/{source.repository_name}/compare/{base}...{head}"
+        )
+    except SyncError as error:
+        if not _is_no_common_ancestor_error(error, base, head):
+            raise
+        _confirm_repository_commit(
+            source,
+            "confirm latest release commit exists",
+            base,
+            client,
+        )
+        _confirm_repository_commit(
+            source,
+            "confirm locked commit exists",
+            head,
+            client,
+        )
+        return "diverged"
     status = payload.get("status") if isinstance(payload, dict) else None
     if not isinstance(status, str):
         raise SyncError(f"GitHub comparison for {source.name} has no status")
@@ -658,7 +732,7 @@ def main(argv: list[str] | None = None) -> int:
             unknown = selected - {source.name for source in sources}
             if unknown:
                 raise SyncError(f"Unknown upstream source: {sorted(unknown)[0]}")
-        client = GitHubClient(token=os.environ.get("GITHUB_TOKEN"))
+        client = GitHubClient(token=os.environ.get("UPSTREAM_GITHUB_TOKEN"))
         results = check_sources(sources, load_source_lock(), client)
         if args.command == "sync":
             source_map = {source.name: source for source in sources}
