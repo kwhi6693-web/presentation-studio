@@ -15,6 +15,7 @@ from scripts.upstream_sync import (
     ReleaseInfo,
     SourceConfig,
     SyncError,
+    check_sources,
     classify_update,
     discover_latest_release,
     main,
@@ -61,10 +62,15 @@ class CloseFailureResponse:
         raise OSError("socket close failed")
 
 
-def http_error(status: int, retry_after: str | None = None) -> urllib.error.HTTPError:
+def http_error(
+    status: int,
+    retry_after: str | None = None,
+    message: str | None = None,
+) -> urllib.error.HTTPError:
     headers = {} if retry_after is None else {"Retry-After": retry_after}
+    body = b"" if message is None else json.dumps({"message": message}).encode("utf-8")
     return urllib.error.HTTPError(
-        "https://api.github.com/test", status, "fixture error", headers, io.BytesIO()
+        "https://api.github.com/test", status, "fixture error", headers, io.BytesIO(body)
     )
 
 
@@ -228,6 +234,231 @@ class GitHubClientRetryTests(unittest.TestCase):
 
         self.assertEqual(urlopen.call_count, 1)
         self.assertEqual(sleeps, [])
+
+
+class UpstreamAuthenticationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.source = SourceConfig(
+            name="sample",
+            owner="author",
+            repository_name="skill",
+            repository="https://github.com/author/skill.git",
+            expected_license="MIT",
+            imports=(),
+            preserve=(),
+        )
+        self.release_commit = "a" * 40
+        self.release_payload = {
+            "draft": False,
+            "prerelease": False,
+            "tag_name": "v1.2.3",
+            "html_url": "https://github.com/author/skill/releases/tag/v1.2.3",
+            "published_at": "2026-08-13T00:00:00Z",
+        }
+        self.source_lock = {
+            "sources": [{"name": self.source.name, "commit": self.release_commit}]
+        }
+
+    def cli_authorization_headers(self, environment: dict[str, str]) -> list[str | None]:
+        responses = [
+            JsonResponse(json.dumps(self.release_payload).encode("utf-8")),
+            JsonResponse(
+                json.dumps(
+                    {"object": {"type": "commit", "sha": self.release_commit}}
+                ).encode("utf-8")
+            ),
+        ]
+        with (
+            patch.dict("os.environ", environment, clear=True),
+            patch("scripts.upstream_sync.load_source_configs", return_value=(self.source,)),
+            patch("scripts.upstream_sync.load_source_lock", return_value=self.source_lock),
+            patch(
+                "scripts.upstream_sync.urllib.request.urlopen", side_effect=responses
+            ) as urlopen,
+            patch("sys.stdout", new=io.StringIO()),
+        ):
+            self.assertEqual(main(["check", "--json"]), 0)
+
+        return [
+            request.args[0].get_header("Authorization")
+            for request in urlopen.call_args_list
+        ]
+
+    def test_missing_upstream_token_uses_unauthenticated_requests(self) -> None:
+        self.assertEqual(self.cli_authorization_headers({}), [None, None])
+
+    def test_repository_token_is_not_used_for_upstream_requests(self) -> None:
+        self.assertEqual(
+            self.cli_authorization_headers({"GITHUB_TOKEN": "repository-token"}),
+            [None, None],
+        )
+
+    def test_explicit_upstream_token_authenticates_upstream_requests(self) -> None:
+        self.assertEqual(
+            self.cli_authorization_headers(
+                {
+                    "GITHUB_TOKEN": "repository-token",
+                    "UPSTREAM_GITHUB_TOKEN": "test-token",
+                }
+            ),
+            ["Bearer test-token", "Bearer test-token"],
+        )
+
+    def test_compare_404_names_source_operation_and_http_status(self) -> None:
+        client = GitHubClient(sleeper=lambda _: None)
+        with patch(
+            "scripts.upstream_sync.urllib.request.urlopen",
+            side_effect=[
+                JsonResponse(json.dumps(self.release_payload).encode("utf-8")),
+                JsonResponse(
+                    json.dumps(
+                        {"object": {"type": "commit", "sha": self.release_commit}}
+                    ).encode("utf-8")
+                ),
+                http_error(404),
+            ],
+        ), self.assertRaisesRegex(
+            SyncError,
+            r"source sample; compare latest release with locked commit; terminal HTTP 404 after 1 attempt",
+        ):
+            check_sources(
+                (self.source,),
+                {"sources": [{"name": self.source.name, "commit": "b" * 40}]},
+                client,
+            )
+
+
+class UnrelatedHistoryFallbackTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.source = SourceConfig(
+            name="sample",
+            owner="author",
+            repository_name="skill",
+            repository="https://github.com/author/skill.git",
+            expected_license="MIT",
+            imports=(),
+            preserve=(),
+        )
+        self.release_commit = "a" * 40
+        self.locked_commit = "b" * 40
+        self.release_response = JsonResponse(
+            json.dumps(
+                {
+                    "draft": False,
+                    "prerelease": False,
+                    "tag_name": "v2.0.0",
+                    "html_url": "https://github.com/author/skill/releases/tag/v2.0.0",
+                    "published_at": "2026-08-24T00:00:00Z",
+                }
+            ).encode("utf-8")
+        )
+        self.tag_response = JsonResponse(
+            json.dumps(
+                {"object": {"type": "commit", "sha": self.release_commit}}
+            ).encode("utf-8")
+        )
+
+    def source_lock(self) -> dict:
+        return {
+            "sources": [{"name": self.source.name, "commit": self.locked_commit}]
+        }
+
+    def no_common_ancestor_error(
+        self,
+        base: str | None = None,
+        head: str | None = None,
+    ) -> urllib.error.HTTPError:
+        return http_error(
+            404,
+            message=(
+                f"No common ancestor between {base or self.release_commit} "
+                f"and {head or self.locked_commit}."
+            ),
+        )
+
+    def commit_response(self, commit: str) -> JsonResponse:
+        return JsonResponse(json.dumps({"sha": commit}).encode("utf-8"))
+
+    def test_confirmed_no_common_ancestor_is_an_update(self) -> None:
+        client = GitHubClient(sleeper=lambda _: None)
+        with patch(
+            "scripts.upstream_sync.urllib.request.urlopen",
+            side_effect=[
+                self.release_response,
+                self.tag_response,
+                self.no_common_ancestor_error(),
+                self.commit_response(self.release_commit),
+                self.commit_response(self.locked_commit),
+            ],
+        ) as urlopen:
+            results = check_sources((self.source,), self.source_lock(), client)
+
+        self.assertEqual(results[0]["status"], "update_available")
+        self.assertEqual(
+            [request.args[0].full_url for request in urlopen.call_args_list[-2:]],
+            [
+                f"https://api.github.com/repos/author/skill/commits/{self.release_commit}",
+                f"https://api.github.com/repos/author/skill/commits/{self.locked_commit}",
+            ],
+        )
+
+    def test_no_common_ancestor_for_other_commits_is_not_reclassified(self) -> None:
+        client = GitHubClient(sleeper=lambda _: None)
+        with patch(
+            "scripts.upstream_sync.urllib.request.urlopen",
+            side_effect=[
+                self.release_response,
+                self.tag_response,
+                self.no_common_ancestor_error("c" * 40, "d" * 40),
+            ],
+        ), self.assertRaisesRegex(
+            SyncError,
+            r"source sample; compare latest release with locked commit; terminal HTTP 404 after 1 attempt",
+        ):
+            check_sources((self.source,), self.source_lock(), client)
+
+    def test_no_common_ancestor_requires_both_commits_in_configured_repository(self) -> None:
+        scenarios = (
+            (
+                "release",
+                [http_error(404)],
+                r"source sample; confirm latest release commit exists; terminal HTTP 404 after 1 attempt",
+            ),
+            (
+                "locked",
+                [self.commit_response(self.release_commit), http_error(404)],
+                r"source sample; confirm locked commit exists; terminal HTTP 404 after 1 attempt",
+            ),
+        )
+        for missing, confirmation_responses, expected_error in scenarios:
+            with self.subTest(missing=missing):
+                client = GitHubClient(sleeper=lambda _: None)
+                with patch(
+                    "scripts.upstream_sync.urllib.request.urlopen",
+                    side_effect=[
+                        JsonResponse(self.release_response.getvalue()),
+                        JsonResponse(self.tag_response.getvalue()),
+                        self.no_common_ancestor_error(),
+                        *confirmation_responses,
+                    ],
+                ), self.assertRaisesRegex(SyncError, expected_error):
+                    check_sources((self.source,), self.source_lock(), client)
+
+    def test_mismatched_commit_confirmation_is_not_reclassified(self) -> None:
+        client = GitHubClient(sleeper=lambda _: None)
+        with patch(
+            "scripts.upstream_sync.urllib.request.urlopen",
+            side_effect=[
+                self.release_response,
+                self.tag_response,
+                self.no_common_ancestor_error(),
+                self.commit_response("c" * 40),
+            ],
+        ), self.assertRaisesRegex(
+            SyncError,
+            r"source sample; confirm latest release commit exists; GitHub commit response did not match requested commit",
+        ):
+            check_sources((self.source,), self.source_lock(), client)
 
 
 class ReleaseDiscoveryTests(unittest.TestCase):
