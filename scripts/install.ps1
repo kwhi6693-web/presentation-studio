@@ -121,7 +121,7 @@ if ([string]::IsNullOrWhiteSpace($PythonExecutable) -or [string]::IsNullOrWhiteS
     $resolverPath = Join-Path $sourcePath "scripts\resolve-runtimes.ps1"
     if (Test-Path -LiteralPath $resolverPath -PathType Leaf) {
         . $resolverPath
-        $resolvedRuntimes = Resolve-CodexRuntimeSet -ProfileRoot $userProfileRoot
+        $resolvedRuntimes = Resolve-PresentationStudioRuntimeSet -ProfileRoot $userProfileRoot
         if ($resolvedRuntimes.status -eq "PASS") {
             if ([string]::IsNullOrWhiteSpace($PythonExecutable)) { $PythonExecutable = $resolvedRuntimes.python }
             if ([string]::IsNullOrWhiteSpace($NodeExecutable)) { $NodeExecutable = $resolvedRuntimes.node }
@@ -214,5 +214,5 @@ Write-Output "Node.js: $NodeExecutable"
 if ($backupPath) {
     Write-Output "Previous installation backup: $backupPath"
 }
-Write-Output "Restart Codex, then invoke `$presentation-studio or describe a presentation/image request naturally."
+Write-Output "Reload your Agent/Harness Skill registry, then invoke `$presentation-studio or describe a presentation/image request naturally."
 

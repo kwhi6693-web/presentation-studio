@@ -24,17 +24,22 @@ SPEC.loader.exec_module(PREFLIGHT)
 
 def _node_executable() -> str:
     configured = os.environ.get("PRESENTATION_STUDIO_NODE")
+    runtime_root = os.environ.get("PRESENTATION_STUDIO_RUNTIME_ROOT")
     bundled = (
-        Path.home()
-        / ".cache"
-        / "codex-runtimes"
-        / "codex-primary-runtime"
+        Path(runtime_root)
+        if runtime_root
+        else None
+    )
+    bundled_node = (
+        bundled
         / "dependencies"
         / "node"
         / "bin"
         / "node.exe"
+        if bundled
+        else None
     )
-    for candidate in (configured, str(bundled), shutil.which("node")):
+    for candidate in (configured, str(bundled_node) if bundled_node else None, shutil.which("node")):
         if candidate and Path(candidate).is_file():
             return str(Path(candidate).resolve())
     raise unittest.SkipTest("Node.js is required for capability probing")

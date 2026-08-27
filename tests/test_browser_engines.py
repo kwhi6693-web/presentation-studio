@@ -21,19 +21,17 @@ def _existing_path(candidates: tuple[str | None, ...], label: str) -> str:
 
 
 def _node_executable() -> str:
+    runtime_root = os.environ.get("PRESENTATION_STUDIO_RUNTIME_ROOT")
+    bundled = (
+        Path(runtime_root) / "dependencies" / "node" / "bin" / "node.exe"
+        if runtime_root
+        else None
+    )
     return _existing_path(
         (
             os.environ.get("PRESENTATION_STUDIO_NODE"),
-            str(
-                Path.home()
-                / ".cache"
-                / "codex-runtimes"
-                / "codex-primary-runtime"
-                / "dependencies"
-                / "node"
-                / "bin"
-                / "node.exe"
-            ),
+            str(bundled) if bundled else None,
+            r"C:\Program Files\nodejs\node.exe",
             shutil.which("node"),
         ),
         "Node.js",
@@ -56,18 +54,13 @@ def _chromium_executable() -> str:
 
 def _node_package_root() -> Path:
     configured = os.environ.get("PRESENTATION_STUDIO_NODE_MODULES")
-    candidates = (
-        configured,
-        str(
-            Path.home()
-            / ".cache"
-            / "codex-runtimes"
-            / "codex-primary-runtime"
-            / "dependencies"
-            / "node"
-            / "node_modules"
-        ),
+    runtime_root = os.environ.get("PRESENTATION_STUDIO_RUNTIME_ROOT")
+    bundled = (
+        Path(runtime_root) / "dependencies" / "node" / "node_modules"
+        if runtime_root
+        else None
     )
+    candidates = (configured, str(bundled) if bundled else None)
     for candidate in candidates:
         if candidate and (Path(candidate) / "playwright").is_dir():
             return Path(candidate).resolve()

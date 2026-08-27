@@ -47,6 +47,17 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             )
 
     @unittest.skipIf(health is None, "repository health verifier is missing")
+    def test_missing_language_readme_entry_point_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_complete_repository(root)
+            (root / "README.zh-TW.md").unlink()
+
+            issues = health.validate_repository(root)
+
+            self.assertIn("missing required community file: README.zh-TW.md", issues)
+
+    @unittest.skipIf(health is None, "repository health verifier is missing")
     def test_malformed_issue_form_floating_action_and_npm_dependabot_fail(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -173,10 +184,21 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
         (root / "docs").mkdir(parents=True)
         (root / "docs" / "guide.md").write_text("# Guide\n", encoding="utf-8")
         (root / "README.md").write_text(
+            "[English](README.md)\n"
+            "[简体中文](README.zh-CN.md)\n"
+            "[繁體中文](README.zh-TW.md)\n"
             "[Contributing](CONTRIBUTING.md)\n"
             "[Security](SECURITY.md)\n"
             "[Guide](docs/guide.md#start)\n"
             "[Release](https://example.com/release)\n",
+            encoding="utf-8",
+        )
+        (root / "README.zh-CN.md").write_text(
+            "[English](README.md)\n[简体中文](README.zh-CN.md)\n[繁體中文](README.zh-TW.md)\n",
+            encoding="utf-8",
+        )
+        (root / "README.zh-TW.md").write_text(
+            "[English](README.md)\n[简体中文](README.zh-CN.md)\n[繁體中文](README.zh-TW.md)\n",
             encoding="utf-8",
         )
 

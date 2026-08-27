@@ -1,6 +1,6 @@
 # Contributing to Presentation Studio
 
-感谢你帮助改进 Presentation Studio。Contributions are welcome when they preserve deterministic packaging, upstream provenance, explicit capability degradation, and the bilingual documentation contract.
+感谢你帮助改进 Presentation Studio。Contributions are welcome when they preserve deterministic packaging, upstream provenance, explicit capability degradation, and the three-language documentation contract.
 
 ## Development requirements
 
@@ -33,7 +33,7 @@ Do not use broad staging commands when the worktree contains unrelated changes.
 
 ## Required verification
 
-Run the repository-health boundary, full tests, bilingual examples, deterministic build, and package parity checks:
+Run the repository-health boundary, full tests, checked-in examples, deterministic build, and package parity checks:
 
 ```bash
 python scripts/verify_repository_health.py
@@ -58,8 +58,8 @@ Change them through the upstream synchronization workflow whenever possible. A m
 
 ## Documentation and security
 
-- Keep Chinese and English entry points aligned where the README promises bilingual guidance.
-- Preserve the seven major capability markers and both expandable example showcases.
+- Keep the English, Simplified Chinese, and Traditional Chinese entry points aligned where the README contract promises shared guidance.
+- Preserve the seven capability layers and both expandable example showcases.
 - Never commit credentials, tokens, passwords, private documents, machine-specific absolute paths, Python caches, or local planning artifacts.
 - Follow [SECURITY.md](SECURITY.md) for vulnerabilities. Do not disclose an unpatched vulnerability in a public issue or pull request.
 

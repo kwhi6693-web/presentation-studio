@@ -1,5 +1,7 @@
 # Repository Modernization Design
 
+> Historical design record from 2026-08-21. The original bilingual/Codex-first proposal is superseded by the current three-entry-point, Agent-compatible public contract; this file remains for traceability.
+
 Date: 2026-08-21
 
 Status: Approved for implementation
@@ -24,7 +26,7 @@ Modernize the public repository around the already released `v1.1.1` without cha
 
 ### 1. README information architecture
 
-Keep the README bilingual and preserve its existing seven major capability layers and two expandable example sections. Reorganize it so a first-time user sees, in order:
+Keep three standalone README entry points (English, Simplified Chinese, and Traditional Chinese) aligned around the existing seven major capability layers and two expandable example sections. Reorganize them so a first-time user sees, in order:
 
 1. Product statement and current release status.
 2. Primary actions: download the latest release, verify the ZIP, install from source, and inspect examples.
@@ -82,7 +84,7 @@ After the versioned maintenance PR is merged and verified, update GitHub reposit
 
 - Description: a concise bilingual or English discovery-oriented summary within GitHub's length limit.
 - Homepage: `https://github.com/kwhi6693-web/presentation-studio/releases/latest`.
-- Topics: a focused set including `codex-skill`, `presentations`, `pptx`, `html-slides`, `pdf`, `infographics`, `diagrams`, `presentation-automation`, `python`, and `github-actions`.
+- Topics: a focused capability set including `agent-skill`, `ai-agent`, `codex-skill`, `presentation-automation`, `presentation-generator`, `pptx`, `html-slides`, `infographics`, and `diagrams`.
 - Private vulnerability reporting: enable it before the security policy directs external reporters to the private advisory form.
 
 Issues remain enabled. Wiki and Discussions are not changed because there is no evidence that either needs migration or activation as part of this update.

@@ -9,7 +9,13 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 
-REQUIRED_COMMUNITY_FILES = (
+REQUIRED_READMES = (
+    "README.md",
+    "README.zh-CN.md",
+    "README.zh-TW.md",
+)
+
+REQUIRED_COMMUNITY_FILES = REQUIRED_READMES + (
     "CONTRIBUTING.md",
     "SECURITY.md",
     "CODE_OF_CONDUCT.md",
@@ -74,32 +80,38 @@ def _validate_required_files(root: Path) -> list[str]:
 
 
 def _validate_readme_links(root: Path) -> list[str]:
-    readme = root / "README.md"
-    if not readme.is_file():
-        return ["README.md is missing"]
-
     issues: list[str] = []
-    text = readme.read_text(encoding="utf-8-sig")
-    for raw_target in MARKDOWN_LINK_RE.findall(text):
-        target = raw_target.strip().strip("<>")
-        if target.startswith("#"):
+    for readme_name in REQUIRED_READMES:
+        readme = root / readme_name
+        if not readme.is_file():
             continue
-        parsed = urlsplit(target)
-        if parsed.scheme.lower() in {"http", "https", "mailto"} or parsed.netloc:
-            continue
-        relative_path = unquote(parsed.path)
-        if not relative_path:
-            continue
-        resolved = (root / relative_path).resolve()
-        try:
-            resolved.relative_to(root)
-        except ValueError:
-            issues.append(f"README local link escapes repository: {relative_path}")
-            continue
-        if not resolved.exists():
-            issues.append(
-                f"README local link target does not exist: {relative_path}"
-            )
+        text = readme.read_text(encoding="utf-8-sig")
+        label = "README" if readme_name == "README.md" else readme_name
+        for language_target in REQUIRED_READMES:
+            if f"]({language_target})" not in text:
+                issues.append(
+                    f"{readme_name} is missing language switch target: {language_target}"
+                )
+        for raw_target in MARKDOWN_LINK_RE.findall(text):
+            target = raw_target.strip().strip("<>")
+            if target.startswith("#"):
+                continue
+            parsed = urlsplit(target)
+            if parsed.scheme.lower() in {"http", "https", "mailto"} or parsed.netloc:
+                continue
+            relative_path = unquote(parsed.path)
+            if not relative_path:
+                continue
+            resolved = (root / relative_path).resolve()
+            try:
+                resolved.relative_to(root)
+            except ValueError:
+                issues.append(f"{label} local link escapes repository: {relative_path}")
+                continue
+            if not resolved.exists():
+                issues.append(
+                    f"{label} local link target does not exist: {relative_path}"
+                )
     return issues
 
 

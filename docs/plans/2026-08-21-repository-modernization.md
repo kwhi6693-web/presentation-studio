@@ -1,5 +1,7 @@
 # Repository Modernization Implementation Plan
 
+> Historical planning record from 2026-08-21. Its initial Codex-first metadata wording is superseded by the current Agent-compatible contract in the three root README entry points; retained here as an audit trail.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` task-by-task. Inline execution is selected; no subagents are authorized.
 
 **Goal:** Modernize Presentation Studio's public documentation, community surface, GitHub Actions references, Dependabot scope, security intake, and repository metadata without changing product behavior or publishing a Release.
@@ -196,9 +198,9 @@ Run health tests, real health CLI, and repository contract tests. Stage only wor
 ### Task 6: Remote metadata, private reporting, and final audit
 
 - [ ] Capture current description, homepage, topics, and private-reporting state.
-- [ ] Set description to `Bilingual Codex Skill for verified PPTX, HTML slides, PDF, infographics, diagrams, exact-data routing, and presentation QA.`
+- [ ] Set description to `Agent-compatible presentation and visual production Skill for editable PPTX, HTML slides, exact-data routing, and rendered QA.`
 - [ ] Set homepage to `https://github.com/kwhi6693-web/presentation-studio/releases/latest`.
-- [ ] Set topics exactly to `codex-skill`, `presentations`, `pptx`, `html-slides`, `pdf`, `infographics`, `diagrams`, `presentation-automation`, `python`, `github-actions`.
+- [ ] Set topics to a focused capability set including `agent-skill`, `ai-agent`, `codex-skill`, `presentation-automation`, `presentation-generator`, `pptx`, `html-slides`, `infographics`, and `diagrams`.
 - [ ] Enable private vulnerability reporting and require API readback `enabled: true`.
 - [ ] Read back Community Profile, ruleset, security settings, open PRs, Releases, and Dependabot alerts.
 - [ ] Confirm v1.1.1 remains Latest, PR #4 remains independent, CodeQL remains deferred, ruleset remains active/no bypass, Release digest remains `c2ca5be5c68d7530f2b724189192284e2bea8b5c9d28b0a77e16314950e40b8d`, and original workspace remains untouched.

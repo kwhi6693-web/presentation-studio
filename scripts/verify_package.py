@@ -139,25 +139,48 @@ def verify_structure() -> dict[str, int]:
 
 
 def verify_readme() -> None:
-    readme = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8-sig")
-    normalized_readme = readme.replace("\\", "/")
-    required_fragments = [
-        "中文说明",
-        "English Guide",
-        "Intelligent retrieval",
-        "智能检索",
-        "Exact-data",
-        "精准数据",
-        "hugohe3/ppt-master",
-        "op7418/guizang-ppt-skill",
-        "zarazhangrui/frontend-slides",
-        "JimLiu/baoyu-skills",
-        "scripts/install.ps1",
-        "scripts/install.sh",
-    ]
-    missing = [fragment for fragment in required_fragments if fragment not in normalized_readme]
-    if missing:
-        fail(f"README is missing required bilingual documentation: {missing}")
+    required_fragments = {
+        "README.md": (
+            "Agent-compatible",
+            "Compatibility matrix",
+            "Designed",
+            "Validated",
+            "Exact-data",
+            "Native PPTX",
+            "scripts/install.ps1",
+            "scripts/install.sh",
+            "hugohe3/ppt-master",
+            "op7418/guizang-ppt-skill",
+            "zarazhangrui/frontend-slides",
+            "JimLiu/baoyu-skills",
+        ),
+        "README.zh-CN.md": (
+            "兼容性矩阵",
+            "设计支持",
+            "已验证",
+            "精准数据",
+            "原生 PPTX",
+            "未执行",
+        ),
+        "README.zh-TW.md": (
+            "相容性矩陣",
+            "設計支援",
+            "已驗證",
+            "精準資料",
+            "原生 PPTX",
+            "未執行",
+        ),
+    }
+    for document_name, fragments in required_fragments.items():
+        document_path = REPOSITORY_ROOT / document_name
+        if not document_path.is_file():
+            fail(f"Missing required public README: {document_name}")
+        text = document_path.read_text(encoding="utf-8-sig").replace("\\", "/")
+        missing = [fragment for fragment in fragments if fragment not in text]
+        if missing:
+            fail(f"{document_name} is missing required documentation: {missing}")
+        if re.search(r"(?i)Bilingual Codex Skill|Codex-only", text):
+            fail(f"{document_name} retains default Codex-only positioning")
 
 
 def verify_repository_assets() -> dict[str, int]:
@@ -186,6 +209,8 @@ def verify_repository_assets() -> dict[str, int]:
 def verify_local_markdown_links() -> None:
     for document_name in [
         "README.md",
+        "README.zh-CN.md",
+        "README.zh-TW.md",
         "CONTRIBUTORS.md",
         "THIRD_PARTY_NOTICES.md",
         "docs/architecture.md",
