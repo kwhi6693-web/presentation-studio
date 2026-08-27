@@ -21,7 +21,7 @@ Presentation Studio exposes seven major capabilities in the README while preserv
 | L0 | Skill invocation and intent recognition | Create, convert, redesign, edit, present, export, or validate intent |
 | L1 | Input intake | Text, images, tables, CSV, XLSX, JSON, Markdown, existing PPTX/HTML/PDF |
 | L2 | Request normalization | Output, editability, audience, goal, subject, tone, density, channel, aspect ratio, asset needs |
-| L3 | Runtime resolution | Verified absolute paths for Python, Node.js, Git, renderers, and browsers |
+| L3 | Runtime resolution | Verified absolute paths for Python, Node.js, Git, renderers, and browsers supplied by the host |
 | L4 | Environment preflight | Availability and readiness of runtimes, Office/LibreOffice, Chromium, fonts, and image providers |
 | L5 | Product retrieval | Hard filters, multi-dimensional ranking, and readiness checks across 13 products |
 | L6 | Style inference | Evidence-based choice across 8 style profiles when the user has not specified one |
@@ -38,6 +38,22 @@ Presentation Studio exposes seven major capabilities in the README while preserv
 | L17 | Quality assurance | Overflow, collision, clipping, margins, contrast, font size, charts, editability, page count, provenance, output consistency |
 | L18 | Repair and fallback | Failure classification, explicit fallback, rerender, recheck, and prohibition on presenting failed intermediates as final |
 | L19 | Safety, provenance, and status | Untrusted-code isolation, credential protection, scoped writes, source/license traceability, and `PASS / PARTIAL / FAIL` |
+
+## Host compatibility boundary
+
+Presentation Studio's core contract is Agent-compatible: catalogs, normalization, data
+binding, routing, provenance, validation, and package checks do not require a particular
+Agent API or discovery directory. The host supplies executable runtimes and optional
+capabilities such as Python, Node.js, Chromium, Office rendering, fonts, and image
+providers. The checked-in runtime resolver accepts generic configured roots or explicit
+absolute executable paths and reports an optional Codex App bundle fallback with a source
+label when that adapter is used.
+
+`presentation-studio/agents/openai.yaml` is a host descriptor for OpenAI/Codex discovery,
+not a core dependency. Upstream optional adapters are scoped to their corresponding
+engine capability. Compatibility therefore follows the selected product route and the
+available capabilities; a missing optional browser or provider produces a route-level
+`PARTIAL`, `NOT AVAILABLE`, or `NOT EXECUTED` result rather than a whole-Skill verdict.
 
 ## Execution paths
 
@@ -67,6 +83,7 @@ The engine adapters are preserved during upstream updates. Upstream content cann
 - `PASS`: every required structural and runtime-dependent gate was actually executed and passed.
 - `PARTIAL`: a usable product exists, but one or more required runtime-dependent checks could not be executed.
 - `FAIL`: a required gate failed or the safe product cannot be produced.
+- `NOT AVAILABLE` / `NOT EXECUTED`: capability-level results for an absent or unrun optional path; they are not compatibility claims about the complete Skill.
 
 Structural checks do not impersonate visual rendering. PowerPoint/LibreOffice, Chromium/Playwright, image providers, fonts, and primary runtimes are reported separately so the result remains auditable.
 

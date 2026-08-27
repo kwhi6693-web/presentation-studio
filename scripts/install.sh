@@ -116,5 +116,5 @@ printf 'Node.js: %s\n' "${node_executable}"
 if [[ -n "${backup_path}" ]]; then
   printf 'Previous installation backup: %s\n' "${backup_path}"
 fi
-printf 'Restart Codex, then invoke $presentation-studio or describe a presentation/image request naturally.\n'
+printf 'Reload your Agent/Harness Skill registry, then invoke $presentation-studio or describe a presentation/image request naturally.\n'
 

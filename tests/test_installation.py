@@ -16,18 +16,20 @@ SKILL_ROOT = ROOT / "presentation-studio"
 
 def _node_executable() -> str:
     configured = os.environ.get("PRESENTATION_STUDIO_NODE")
+    runtime_root = os.environ.get("PRESENTATION_STUDIO_RUNTIME_ROOT")
+    bundled = (
+        Path(runtime_root)
+        / "dependencies"
+        / "node"
+        / "bin"
+        / "node.exe"
+        if runtime_root
+        else None
+    )
     candidates = [
         configured,
-        str(
-            Path.home()
-            / ".cache"
-            / "codex-runtimes"
-            / "codex-primary-runtime"
-            / "dependencies"
-            / "node"
-            / "bin"
-            / "node.exe"
-        ),
+        str(bundled) if bundled else None,
+        r"C:\Program Files\nodejs\node.exe",
         shutil.which("node"),
     ]
     for candidate in candidates:
@@ -47,26 +49,38 @@ def _powershell_executable() -> str:
 
 
 def _bash_executable() -> str:
+    runtime_root = os.environ.get("PRESENTATION_STUDIO_RUNTIME_ROOT")
+    bundled = (
+        Path(runtime_root)
+        / "dependencies"
+        / "native"
+        / "git"
+        / "usr"
+        / "bin"
+        / "bash.exe"
+        if runtime_root
+        else None
+    )
     candidates = [
-        shutil.which("bash"),
         r"C:\Program Files\Git\bin\bash.exe",
         r"C:\Program Files\Git\usr\bin\bash.exe",
-        str(
-            Path.home()
-            / ".cache"
-            / "codex-runtimes"
-            / "codex-primary-runtime"
-            / "dependencies"
-            / "native"
-            / "git"
-            / "usr"
-            / "bin"
-            / "bash.exe"
-        ),
+        shutil.which("bash"),
+        str(bundled) if bundled else None,
     ]
     for candidate in candidates:
         if candidate and Path(candidate).is_file():
-            return str(Path(candidate).resolve())
+            resolved = str(Path(candidate).resolve())
+            if os.name == "nt":
+                probe = subprocess.run(
+                    [resolved, "-lc", "command -v cygpath"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                )
+                if probe.returncode != 0:
+                    continue
+            return resolved
     raise unittest.SkipTest("Bash is required for the POSIX installer smoke test")
 
 
@@ -115,6 +129,47 @@ class InstalledSkillSelfCheckTests(unittest.TestCase):
         self.assertEqual(payload["package"]["engines"], 4)
         self.assertEqual(payload["smoke"]["product"], "dual-format-deck")
         self.assertEqual(payload["smoke"]["engines"], ["ppt-master", "frontend-slides"])
+
+
+class RuntimeResolverTests(unittest.TestCase):
+    def test_resolver_accepts_a_configured_generic_runtime_root(self) -> None:
+        powershell = _powershell_executable()
+        resolver = SKILL_ROOT / "scripts" / "resolve-runtimes.ps1"
+
+        with tempfile.TemporaryDirectory(prefix="presentation-studio-runtime-") as temp:
+            runtime_root = Path(temp) / "runtime"
+            for relative_path in (
+                "dependencies/python/python.exe",
+                "dependencies/node/bin/node.exe",
+                "dependencies/native/git/cmd/git.exe",
+            ):
+                executable = runtime_root / relative_path
+                executable.parent.mkdir(parents=True, exist_ok=True)
+                executable.write_text("placeholder", encoding="utf-8")
+
+            env = dict(os.environ)
+            env["PRESENTATION_STUDIO_RUNTIME_ROOT"] = str(runtime_root)
+            command = (
+                "$ErrorActionPreference = 'Stop'; "
+                f". '{resolver}'; "
+                "$result = Resolve-PresentationStudioRuntimeSet "
+                "-RuntimeRoot $env:PRESENTATION_STUDIO_RUNTIME_ROOT; "
+                "$result | ConvertTo-Json -Compress"
+            )
+            result = subprocess.run(
+                [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                env=env,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "PASS")
+        self.assertEqual(payload["source"], "configured-runtime-root")
+        self.assertNotEqual(payload["source"], "codex-app-bundle")
 
 
 class PowerShellInstallerTests(unittest.TestCase):

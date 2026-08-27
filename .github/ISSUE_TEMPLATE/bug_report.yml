@@ -22,7 +22,7 @@ body:
       options:
         - GitHub Release ZIP
         - Source checkout
-        - Installed Codex Skill
+        - Installed Agent Skill
         - Other verified package
     validations:
       required: true

@@ -17,15 +17,35 @@ except ImportError:
 
 ROOT = Path(__file__).resolve().parents[1]
 
-MAJOR_LAYER_MARKERS = (
-    "智能理解与产品决策",
-    "数据契约与引擎编排",
-    "内容与视觉生产",
-    "多格式原生生成",
-    "渲染验收与自动修复",
-    "安全、溯源与状态",
-    "上游持续同步",
-)
+README_EXPECTATIONS = {
+    "README.md": (
+        "Agent-compatible",
+        "Compatibility matrix",
+        "Designed",
+        "Validated",
+        "Native PPTX",
+        "NOT EXECUTED",
+        "presentation-acceptance-en.pptx",
+    ),
+    "README.zh-CN.md": (
+        "兼容性矩阵",
+        "设计支持",
+        "已验证",
+        "原生 PPTX",
+        "未执行",
+        "presentation-acceptance-zh.pptx",
+    ),
+    "README.zh-TW.md": (
+        "相容性矩陣",
+        "設計支援",
+        "已驗證",
+        "原生 PPTX",
+        "未執行",
+        "presentation-acceptance-zh.pptx",
+    ),
+}
+
+README_PATHS = tuple(README_EXPECTATIONS)
 
 SIX_EXAMPLE_PATHS = (
     "examples/bilingual-acceptance/zh/presentation-acceptance-zh.pptx",
@@ -66,20 +86,24 @@ class RepositoryContractTests(unittest.TestCase):
             with self.subTest(term=term):
                 self.assertIn(term, sync_text)
 
-    def test_readme_shows_seven_major_layers_and_two_expandable_showcases(self) -> None:
-        text = (ROOT / "README.md").read_text(encoding="utf-8-sig")
-        for marker in MAJOR_LAYER_MARKERS:
-            with self.subTest(marker=marker):
-                self.assertTrue(marker in text, f"README is missing major layer: {marker}")
+    def test_three_readmes_are_standalone_and_separate_designed_from_validated(self) -> None:
+        for relative_path, terms in README_EXPECTATIONS.items():
+            text = (ROOT / relative_path).read_text(encoding="utf-8-sig")
+            with self.subTest(readme=relative_path):
+                for term in terms:
+                    self.assertIn(term, text, f"{relative_path} is missing contract term: {term}")
+                self.assertEqual(text.count("<details>"), 2)
+                self.assertEqual(text.count("</details>"), 2)
+                for example_path in SIX_EXAMPLE_PATHS:
+                    self.assertIn(example_path, text, f"{relative_path} is missing example link: {example_path}")
+                self.assertNotRegex(text, r"(?i)\bBilingual Codex Skill\b|\bCodex-only\b")
 
-        self.assertEqual(text.count("<details>"), 2)
-        self.assertEqual(text.count("</details>"), 2)
-        for relative_path in SIX_EXAMPLE_PATHS:
-            with self.subTest(example=relative_path):
-                self.assertTrue(
-                    relative_path in text,
-                    f"README is missing example link: {relative_path}",
-                )
+    def test_readme_language_switches_cover_all_entry_points(self) -> None:
+        for relative_path in README_PATHS:
+            text = (ROOT / relative_path).read_text(encoding="utf-8-sig")
+            for target in README_PATHS:
+                with self.subTest(readme=relative_path, target=target):
+                    self.assertIn(f"]({target})", text)
 
     def test_fast_path_preserves_complete_workflow_escalations(self) -> None:
         skill_path = ROOT / "presentation-studio" / "SKILL.md"
