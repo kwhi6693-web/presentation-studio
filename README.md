@@ -1,35 +1,44 @@
-# Presentation Studio
+# 🎬 Presentation Studio
 
 > Agent-compatible presentation and visual production Skill for editable PPTX, HTML slides, PDF, visual assets, exact-data routing, and rendered QA.
 
-[![Validate package](https://github.com/kwhi6693-web/presentation-studio/actions/workflows/validate.yml/badge.svg)](https://github.com/kwhi6693-web/presentation-studio/actions/workflows/validate.yml)
-[![Sync upstreams](https://github.com/kwhi6693-web/presentation-studio/actions/workflows/sync-upstreams.yml/badge.svg)](https://github.com/kwhi6693-web/presentation-studio/actions/workflows/sync-upstreams.yml)
-[![Latest release](https://img.shields.io/github/v/release/kwhi6693-web/presentation-studio?display_name=tag&sort=semver)](https://github.com/kwhi6693-web/presentation-studio/releases/latest)
-[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Product recipes: 13](https://img.shields.io/badge/Product%20recipes-13-2f855a)](presentation-studio/catalog/products.json)
-[![Style profiles: 8](https://img.shields.io/badge/Style%20profiles-8-805ad5)](presentation-studio/catalog/styles.json)
-
 [English](README.md) · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md)
 
-## What this project is
+[![Latest release](https://img.shields.io/github/v/release/kwhi6693-web/presentation-studio?display_name=tag&sort=semver&style=flat-square)](https://github.com/kwhi6693-web/presentation-studio/releases/latest)
+[![Agent Skill](https://img.shields.io/badge/Agent%20Skill-capability--based-2f855a?style=flat-square)](#compatibility-model)
+[![Validate package](https://github.com/kwhi6693-web/presentation-studio/actions/workflows/validate.yml/badge.svg?branch=main&style=flat-square)](https://github.com/kwhi6693-web/presentation-studio/actions/workflows/validate.yml)
+[![Sync upstreams](https://github.com/kwhi6693-web/presentation-studio/actions/workflows/sync-upstreams.yml/badge.svg?branch=main&style=flat-square)](https://github.com/kwhi6693-web/presentation-studio/actions/workflows/sync-upstreams.yml)
+[![Product recipes: 13](https://img.shields.io/badge/Product%20recipes-13-2f855a?style=flat-square)](presentation-studio/catalog/products.json)
+[![Style profiles: 8](https://img.shields.io/badge/Style%20profiles-8-805ad5?style=flat-square)](presentation-studio/catalog/styles.json)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg?style=flat-square)](LICENSE)
 
-Presentation Studio turns a natural-language brief, exact data, and existing assets into an explainable product and engine route. It is a host-independent Skill contract where the implementation permits it: the host Agent/Harness supplies runtime capabilities, while the Skill supplies catalog-backed routing, data contracts, native-generation boundaries, provenance, and rendered quality gates.
+## 🧭 Overview
 
-The repository contains 13 product recipes, 8 style profiles, and 4 integrated upstream engines. Output families are PPTX, HTML, PDF, PNG, and SVG, subject to the selected product and the capabilities available on the host.
+Presentation Studio turns a natural-language brief, exact data, and existing assets into an explainable product and engine route. The Skill contract is designed to stay host-independent where the implementation permits it: the Agent/Harness supplies runtime capabilities, while Presentation Studio supplies catalog-backed routing, data contracts, native-generation boundaries, provenance, and rendered quality gates.
 
-~~~
-brief + source data + assets
-        -> normalize and preflight
-        -> retrieve a product/style from the local catalog
-        -> route to one engine or a hybrid chain
-        -> generate native/editable outputs
-        -> validate, render, inspect, repair, validate again
-        -> report artifacts, evidence, and capability limits
-~~~
+| At a glance | Current contract |
+|---|---|
+| Product catalog | 13 product recipes and 8 style profiles |
+| Integrated engines | 4 upstream engines with allowlisted synchronization |
+| Output families | PPTX, HTML, PDF, PNG, and SVG |
+| Quality model | Validate → render → inspect → repair → validate again |
+| Compatibility model | Capability-based; designed and validated states are reported separately |
 
-## Capability layers
+## 💡 What problem does this solve?
 
-| Layer | Coverage | Result |
+Presentation work often loses data fidelity, editability, visual consistency, or evidence between a brief and a finished file. A single prompt also cannot know whether the host has Python, Node, Chromium, Office rendering, or an image provider.
+
+Presentation Studio makes those decisions explicit:
+
+- normalize the brief and preflight the host;
+- retrieve a product and style from a local catalog;
+- route to one engine or a hybrid chain;
+- generate native or publication-ready outputs; and
+- report route results, artifacts, evidence, and capability limits.
+
+## ✨ Core capabilities
+
+| Capability layer | Coverage | Result |
 |---|---|---|
 | Intent and product decisions | Brief normalization, preflight, 13-product retrieval, style inference, conflict detection | Explainable product/style choice |
 | Data contracts and routing | Exact-data manifests, type/order/unit protection, engine and hybrid routing | Auditable engine plan |
@@ -39,11 +48,11 @@ brief + source data + assets
 | Safety, provenance, and status | Untrusted-content boundaries, credential protection, license/source records, route status | Reproducible evidence |
 | Upstream synchronization | Stable-release discovery, allowlisted imports, license checks, validated sync PRs | Maintainable integration |
 
-The full L0-L19 responsibility map is in the [architecture guide](docs/architecture.md).
+The complete L0-L19 responsibility map is in the [architecture guide](docs/architecture.md).
 
-## Products, outputs, and engines
+## 🧩 Products, outputs, and engines
 
-The source of truth is [products.json](presentation-studio/catalog/products.json).
+The source of truth for the product catalog is [products.json](presentation-studio/catalog/products.json). The public index contains 13 product recipes:
 
 | Product | Typical use | Outputs | Engine chain |
 |---|---|---|---|
@@ -68,11 +77,11 @@ The source of truth is [products.json](presentation-studio/catalog/products.json
 | [Frontend Slides](https://github.com/zarazhangrui/frontend-slides) | Standalone HTML, keyboard navigation, presenter behavior, HTML-to-PDF | Browser/PDF QA requires resolved Chromium/Playwright capability |
 | [Baoyu Skills](https://github.com/JimLiu/baoyu-skills) | Covers, illustrations, infographics, diagrams, data images, image slides | Provider-backed imagery is optional; an SVG diagram is not a native PowerPoint object |
 
-## Compatibility model
+## 🔍 Compatibility model
 
 ### Designed versus validated
 
-The Compatibility matrix below is the source of truth for the current host evidence.
+The **Compatibility matrix** below is the source of truth for the current host evidence.
 
 The Skill contract and core logic are designed for compatible Agents/Harnesses that can provide the required local capabilities. “Designed” describes architecture and contract intent. “Validated” is reserved for a host/route actually exercised by current verification evidence.
 
@@ -92,127 +101,166 @@ This is not a universal-support claim. A host is evaluated by route and capabili
 
 PASS, PARTIAL, and FAIL are route results. NOT AVAILABLE and NOT EXECUTED make capability gaps explicit; they are not evidence that the whole Skill is unsupported.
 
-The checked-in presentation-studio/agents/openai.yaml is an optional OpenAI/Codex host descriptor. It is not required by the core Skill contract. The vendored Baoyu source may contain an optional baoyu-codex-imagegen adapter; provider and Codex CLI use remain optional upstream capability paths.
+The checked-in `presentation-studio/agents/openai.yaml` is an optional OpenAI/Codex host descriptor, not a core Skill requirement. The vendored Baoyu source may contain an optional `baoyu-codex-imagegen` adapter; provider and Codex CLI use remain optional upstream capability paths.
 
-## Fast and complete paths
+## 🎯 Scope and guarantees
 
-The fast path uses an already available native PPTX route: select a product, provide the required payload, run the relevant local script, and inspect the generated editable file. The complete path adds environment preflight, exact-data validation, rendered QA for the selected output formats, package verification, and evidence reporting. Choose the complete path when a deliverable will be published or when a renderer, browser, Office installation, or image provider is part of the acceptance criteria.
+Use the smallest route that meets the requested output, then expand verification when the deliverable or acceptance criteria require it.
 
-## Capability limitations
+| Route | What it provides | What it does not imply |
+|---|---|---|
+| Fast native path | Product selection, payload preparation, local generation, and inspection of an editable PPTX route | It does not automatically prove browser, Office, provider, or rendered-PDF behavior |
+| Complete path | Environment preflight, exact-data validation, rendered QA, package verification, and evidence reporting | It still reports any unavailable or unexecuted host capability |
+| Image-led product | Image-led narrative or visual assets, including PNG/SVG outputs | An image-led deck must not be described as an object-editable deck |
 
-Presentation Studio reports limitations per route. Missing Chromium, an Office renderer, or a provider-backed image service can leave HTML/PDF or provider routes at PARTIAL, NOT AVAILABLE, or NOT EXECUTED while a native PPTX route still passes. A host should not be described as fully validated unless the relevant route was actually exercised and its evidence was retained.
+Native/editable boundaries are explicit:
 
-## Installation
+| Output family | Boundary |
+|---|---|
+| PPTX | Charts, tables, text, and shapes should use native PowerPoint objects when editability is requested; Office rendering is checked separately |
+| HTML | Standalone files can provide keyboard navigation and presenter behavior; browser/PDF readiness depends on Chromium/Playwright |
+| PDF | Publication output depends on the selected renderer and its page-size/rendering checks |
+| PNG / SVG | Visual assets are native image/vector outputs; an SVG diagram is not a native PowerPoint object |
 
-Installation paths are host-specific. .agents/skills/presentation-studio is a common convention used by the included installers, not a universal Agent directory. Other Agents/Harnesses should place or import the Skill according to their own discovery contract.
+## 📐 Exact-data and editability
+
+Exact-data work requires three comparable records:
+
+| Record | Contract |
+|---|---|
+| Validated manifest | Declares the source values, types, units, order, duplicates, and missing values |
+| Selected-engine payload | Carries the complete data contract into the routed engine |
+| Post-render observed contract | Confirms what the rendered deliverable actually contains |
+
+Compare all three before calling the data result PASS. Missing values, duplicates, length mismatches, or an incomplete observed contract cap the result at PARTIAL.
+
+When native editability is requested, use native PowerPoint objects for charts, tables, text, and shapes. Do not replace an editable deck with full-slide screenshots. Image-led products remain image-led and should not be described as object-editable decks.
+
+## 📋 Requirements
+
+The host Agent/Harness provides capabilities; the Skill reports what each route can actually use.
+
+| Capability | Used for | If unavailable |
+|---|---|---|
+| Visual understanding | Brief interpretation, source-aware composition, and visual inspection | The affected visual route may be PARTIAL or NOT EXECUTED |
+| Local filesystem access | Reading inputs, running local scripts, and collecting artifacts | Local generation or verification cannot run |
+| Python 3.10+ | Preflight, validation, packaging, and Python-based engine steps | The affected route fails its runtime requirement |
+| Node.js | Node-based engines and HTML tooling | Node-dependent routes are unavailable |
+| Git | Source checkout, provenance, and upstream synchronization | Source/update workflows are limited |
+| Chromium / Playwright | Browser behavior, HTML rendering, and HTML-to-PDF QA | HTML/PDF QA is PARTIAL or NOT EXECUTED |
+| Office renderer | Rendered PPTX inspection | Native PPTX can still be produced, but Office-render evidence is unavailable |
+| Image provider | Provider-backed image generation | Provider route is NOT AVAILABLE; choose another route |
+
+## 📦 Installation
+
+Installation directories are host-specific. `.agents/skills/presentation-studio` is a common convention used by the included installers, not a universal Agent directory. Other Agents/Harnesses should place or import the Skill according to their own discovery contract.
 
 ### Release package
 
-Download presentation-studio.zip and presentation-studio.zip.sha256 from the same [latest release](https://github.com/kwhi6693-web/presentation-studio/releases/latest). Verify the ZIP before extraction:
+Download `presentation-studio.zip` and `presentation-studio.zip.sha256` from the same [latest release](https://github.com/kwhi6693-web/presentation-studio/releases/latest). Verify the ZIP before extraction:
 
-~~~
+```sh
 sha256sum -c presentation-studio.zip.sha256
-~~~
+```
 
 Windows PowerShell:
 
-~~~
+```powershell
 $expected = (Get-Content .\presentation-studio.zip.sha256 -Raw).Split()[0].ToLowerInvariant()
 $actual = (Get-FileHash .\presentation-studio.zip -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actual -ne $expected) { throw "SHA-256 mismatch" }
 "OK: $actual"
-~~~
+```
 
-Extraction should produce one presentation-studio/ Skill root. Run its self-check with explicit absolute Python and Node paths:
+Extraction should produce one `presentation-studio/` Skill root. Run its self-check with explicit absolute Python and Node paths:
 
-~~~
+```sh
 python presentation-studio/scripts/self_check.py \
   --root presentation-studio \
   --python /absolute/path/to/python \
   --node /absolute/path/to/node \
   --json
-~~~
+```
 
 ### Source checkout
 
 Windows PowerShell:
 
-~~~
+```powershell
 git clone https://github.com/kwhi6693-web/presentation-studio.git
 Set-Location presentation-studio
 .\scripts\install.ps1 -PythonExecutable C:\path\to\python.exe -NodeExecutable C:\path\to\node.exe
-~~~
+```
 
 Linux or macOS:
 
-~~~
+```sh
 git clone https://github.com/kwhi6693-web/presentation-studio.git
 cd presentation-studio
-PRESENTATION_STUDIO_PYTHON=/absolute/path/to/python PRESENTATION_STUDIO_NODE=/absolute/path/to/node ./scripts/install.sh
-~~~
+PRESENTATION_STUDIO_PYTHON=/absolute/path/to/python PRESENTATION_STUDIO_NODE=/absolute/path/to/node PRESENTATION_STUDIO_GIT=/absolute/path/to/git ./scripts/install.sh
+```
 
-Both installers stage the package outside discovery, run a real self-check, and only then replace an existing installation. A forced update stores the previous copy under .agents/skill-backups/ next to the chosen discovery directory. Reload the host Agent/Harness Skill registry after installation.
+Both installers stage the package outside discovery, run a real self-check, and only then replace an existing installation. A forced update stores the previous copy under `.agents/skill-backups/` next to the chosen discovery directory. Reload the host Agent/Harness Skill registry after installation.
 
 ### Runtime resolution
 
 The generic resolver accepts either:
 
-- PRESENTATION_STUDIO_RUNTIME_ROOT, using dependencies/python/python.exe, dependencies/node/bin/node.exe, and dependencies/native/git/cmd/git.exe; or
-- PRESENTATION_STUDIO_PYTHON, PRESENTATION_STUDIO_NODE, and PRESENTATION_STUDIO_GIT as explicit absolute files.
+- `PRESENTATION_STUDIO_RUNTIME_ROOT`, using `dependencies/python/python.exe`, `dependencies/node/bin/node.exe`, and `dependencies/native/git/cmd/git.exe`; or
+- `PRESENTATION_STUDIO_PYTHON`, `PRESENTATION_STUDIO_NODE`, and `PRESENTATION_STUDIO_GIT` as explicit absolute files.
 
 It rejects WindowsApps aliases and does not treat an accidental PATH hit as runtime evidence. When no generic configuration is supplied, the resolver can use the current Codex App bundle as an explicitly labeled compatibility fallback; that fallback is not a requirement for other hosts. See [dependencies.md](presentation-studio/references/dependencies.md).
 
-## Usage
+## 🚀 Usage
 
 Describe the desired result naturally. Include the topic, purpose, audience, source material or exact data, formats, editability, visual direction, page/aspect constraints, and QA requirements.
 
-~~~
+```text
 Create a 16:9 AI product strategy presentation for our board.
 Deliver a native editable PPTX, standalone HTML, and PDF.
 Use the supplied quarterly metrics without changing values, units, row order, or missing values.
 Keep PPTX charts and tables editable. Inspect every page for overflow, contrast, data fidelity,
 notes, offline behavior, and browser/PDF readiness, then report PASS/PARTIAL/FAIL.
-~~~
+```
 
-For diagnostic routing, run preflight before recommendation and route:
+For diagnostic routing, run preflight before recommendation and routing:
 
-~~~
+```sh
 python presentation-studio/scripts/preflight.py \
   --python /absolute/path/to/python \
   --node /absolute/path/to/node
 python presentation-studio/scripts/recommend.py --json-file request.json
 python presentation-studio/scripts/route.py --json-file route-request.json
-~~~
+```
 
-preflight.py emits JSON by default and has no --json flag. Readiness booleans must come from the current redacted preflight result. The router preserves explicit product/style constraints and reports conflicts instead of silently replacing them.
+`preflight.py` emits JSON by default and has no `--json` flag. Readiness booleans must come from the current redacted preflight result. The router preserves explicit product/style constraints and reports conflicts instead of silently replacing them.
 
-## Exact-data and editability
+## 🖼️ Input → output
 
-Exact-data work requires a validated manifest, the full selected-engine payload, and a post-render observed contract. Compare all three before calling the data result PASS; missing values, duplicates, length mismatches, or an incomplete observed contract cap it at PARTIAL.
+```text
+brief + source data + assets
+        → normalize and preflight
+        → retrieve a product/style from the local catalog
+        → route to one engine or a hybrid chain
+        → generate native/editable outputs
+        → validate, render, inspect, repair, validate again
+        → report artifacts, evidence, and capability limits
+```
 
-When native editability is requested, use native PowerPoint objects for charts, tables, text, and shapes. Do not replace an editable deck with full-slide screenshots. Image-led products remain image-led and should not be described as object-editable decks.
+| Input | Decision layer | Output |
+|---|---|---|
+| Brief, audience, purpose, constraints | Product/style retrieval and conflict detection | Explainable route plan |
+| Exact data and existing assets | Manifest, type/order/unit checks, provenance | Native or visual deliverables |
+| Host capability report | Engine selection and rendered-QA gate | PASS / PARTIAL / FAIL with evidence |
 
-## QA and status
+## 🎞️ Real examples
 
-The required quality loop is:
+The six checked-in artifacts below are real acceptance fixtures for the repository contract. They are structurally verified by `scripts/verify_examples.py`; a fixture pass is not a claim that every optional renderer or provider was freshly exercised on every host.
 
-~~~
-validate -> render -> inspect every page -> repair -> validate again
-~~~
-
-Check narrative, overflow, collision, margins, hierarchy, font size, contrast, crops, chart integrity, editability, notes, keyboard behavior, print/offline behavior, page count, and provenance as applicable to the selected route.
-
-- PASS: every required command and applicable quality check ran successfully and the resulting deliverables passed again after repair.
-- PARTIAL: a usable result exists, but a requested or optional capability was unavailable or not executed; name the affected route and evidence gap.
-- FAIL: a hard constraint conflicts, a required runtime is missing, production fails, or a required quality gate remains open.
-- NOT AVAILABLE: a capability is not supplied by the host, such as an image provider.
-- NOT EXECUTED: an applicable check was not run; it is not a pass.
-
-See [qa.md](presentation-studio/references/qa.md) and [error-system.md](presentation-studio/references/error-system.md).
-
-## Examples
-
-The six checked-in artifacts are acceptance fixtures for the repository contract. They are structurally verified by scripts/verify_examples.py; a fixture pass is not a claim that every optional renderer or provider was freshly exercised on every host.
+| Fixture set | Deliverables | Coverage |
+|---|---|---|
+| English acceptance | PPTX, HTML, PDF | Language identity, native chart/table/notes, HTML behavior, PDF page size |
+| Chinese acceptance | PPTX, HTML, PDF | Language identity, native chart/table/notes, HTML behavior, PDF page size |
 
 <details>
 <summary>Acceptance artifacts</summary>
@@ -229,36 +277,77 @@ The six checked-in artifacts are acceptance fixtures for the repository contract
 <details>
 <summary>Fixture coverage</summary>
 
-Each deck contains five pages with language, native chart/table/notes, HTML keyboard/print/offline, and PDF page-size checks where applicable. Run python scripts/verify_examples.py for the current structural contract.
+Each deck contains five pages with language, native chart/table/notes, HTML keyboard/print/offline, and PDF page-size checks where applicable. Run `python scripts/verify_examples.py` for the current structural contract.
 
 </details>
 
-## Development and verification
+## ⚙️ How it works
+
+1. **Preflight** — resolve the host's actual Python, Node, Git, browser, Office, and provider capabilities.
+2. **Catalog selection** — retrieve a product recipe and style profile from the local source of truth.
+3. **Exact-data contract** — preserve values, types, units, order, duplicates, and missing values through the selected engine payload.
+4. **Engine routing** — choose a native engine or a hybrid chain and report hard conflicts instead of silently substituting.
+5. **Generation** — create editable PPTX objects or the selected HTML/PDF/PNG/SVG output family.
+6. **Quality gate** — validate, render, inspect every applicable page, repair once when allowed, validate again, and report the evidence boundary.
+
+The full orchestration and responsibility map is in [docs/architecture.md](docs/architecture.md). The upstream maintenance contract is in [docs/upstream-sync.md](docs/upstream-sync.md).
+
+## ✅ Validation
+
+The required quality loop is:
+
+```text
+validate → render → inspect every page → repair → validate again
+```
+
+Check narrative, overflow, collision, margins, hierarchy, font size, contrast, crops, chart integrity, editability, notes, keyboard behavior, print/offline behavior, page count, and provenance as applicable to the selected route.
+
+| Status | Meaning |
+|---|---|
+| PASS | Every required command and applicable quality check ran successfully, and the deliverables passed again after repair. |
+| PARTIAL | A usable result exists, but a requested or optional capability was unavailable or not executed; name the affected route and evidence gap. |
+| FAIL | A hard constraint conflicts, a required runtime is missing, production fails, or a required quality gate remains open. |
+| NOT AVAILABLE | The host does not supply a capability, such as an image provider. |
+| NOT EXECUTED | An applicable check was not run; it is not a pass. |
+
+## 🛠️ Development and verification
 
 Run from a source checkout with a resolved absolute Python executable where required:
 
-~~~
+```sh
 python scripts/verify_repository_health.py
 python scripts/verify_examples.py
 python -m unittest discover -s tests -v
-python scripts/build_package.py
 python scripts/verify_package.py
 python scripts/upstream_sync.py check --json
 git diff --check
-~~~
+```
 
-build_package.py creates deterministic dist/presentation-studio.zip. The repository [checksums.sha256](checksums.sha256) names that source-checkout artifact. A Release-only presentation-studio.zip.sha256 is generated beside a release ZIP and is a different contract.
+`build_package.py` creates deterministic `dist/presentation-studio.zip`; run it only when intentionally rebuilding the source-checkout package. The repository [checksums.sha256](checksums.sha256) names that source-checkout artifact. A Release-only `presentation-studio.zip.sha256` is generated beside a release ZIP and is a different contract.
 
-## Upstream synchronization
+## ⚠️ Known limitations
 
-scripts/upstream_sync.py check --json is read-only. The maintainer workflow supports repository events, manual dispatch, and an hourly schedule fallback. It discovers stable releases, validates allowlists/licenses, runs repository/package checks, and opens or updates a dedicated synchronization PR only after verification. See [docs/upstream-sync.md](docs/upstream-sync.md) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+- The host controls which engines, renderers, browsers, Office installations, and image providers are actually available.
+- Missing Chromium, an Office renderer, or a provider-backed image service can leave HTML/PDF or provider routes at PARTIAL, NOT AVAILABLE, or NOT EXECUTED while a native PPTX route still passes.
+- A host must not be called fully validated unless the relevant route was exercised and its evidence was retained.
+- Exact-data results require a validated manifest, the complete selected-engine payload, and a post-render observed contract. Missing values, duplicates, length mismatches, or an incomplete observed contract cap the data result at PARTIAL.
+- Native editability applies to native PowerPoint objects. Full-slide screenshots must not be presented as editable charts, tables, text, or shapes.
+- The public fixtures verify repository structure and declared checks; they do not replace route-specific visual, browser, Office, provider, or cross-Agent verification.
 
-## Security, licensing, and participation
+See [qa.md](presentation-studio/references/qa.md) and [error-system.md](presentation-studio/references/error-system.md) for the detailed QA and failure model.
 
-Do not put credentials, private source content, or unredacted local paths in issues or logs. Report vulnerabilities privately according to [SECURITY.md](SECURITY.md). Contributions follow [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+## 🛡️ Security and provenance
 
-Presentation Studio is licensed under [AGPL-3.0](LICENSE). Vendored engines retain their original licenses and notices; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [CONTRIBUTORS.md](CONTRIBUTORS.md), [source-lock.json](presentation-studio/source-lock.json), and the engine license files.
+Do not put credentials, private source content, or unredacted local paths in issues, prompts, or logs. Report vulnerabilities privately according to [SECURITY.md](SECURITY.md).
 
-## Release and contributing
+License and source records are part of the delivery contract. Vendored engines retain their original licenses and notices; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [CONTRIBUTORS.md](CONTRIBUTORS.md), [source-lock.json](presentation-studio/source-lock.json), and the engine license files.
 
-Release candidates should pass the repository health, example, package, security, and applicable rendered-QA checks in a pull request. The protected `main` branch and its required checks are the integration boundary; do not treat a local build or an unmerged branch as a public release. See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow.
+`scripts/upstream_sync.py check --json` is read-only. The maintainer workflow discovers stable releases, validates allowlists and licenses, runs repository/package checks, and opens or updates a dedicated synchronization PR only after verification. See [docs/upstream-sync.md](docs/upstream-sync.md).
+
+## 🤝 Contributing and releases
+
+Contributions follow [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Release candidates should pass repository health, example, package, security, and applicable rendered-QA checks in a pull request. The protected `main` branch and its required checks are the integration boundary; a local build or an unmerged branch is not a public Release.
+
+## 📄 License
+
+Presentation Studio is licensed under [AGPL-3.0](LICENSE). Upstream engines retain their original licenses and notices.
