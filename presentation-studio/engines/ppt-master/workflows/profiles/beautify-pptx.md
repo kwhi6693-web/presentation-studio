@@ -4,7 +4,7 @@ description: Generate profile for 1:1, content-faithful re-layout of an existing
 
 # Beautify PPTX (Re-layout) Profile
 
-> Generate profile, not a top-level route. [`template-fill-pptx.md`](../template-fill-pptx.md) reuses a deck's design and swaps in new content; this profile keeps a deck's content and redoes its layout.
+> Generate profile, not a top-level route. [`edit-native-pptx.md`](../edit-native-pptx.md) keeps a deck's native design and edits selected pages; this profile keeps a deck's content and redoes its layout.
 
 Re-lays-out an existing `.pptx`: text is preserved **verbatim** and source
 palette / fonts are the preselected recommendation. Only explicit user
@@ -32,7 +32,7 @@ Beautify constraints in this file apply in either runtime.
 
 **Hard rule — content is frozen**: every text string from the source is preserved exactly (no add / remove / reword / reorder). Beautification freedom lives only in layout, hierarchy, spacing, and visual rhythm.
 
-**Hard rule — not a patch, not a fill**: this regenerates a native deck through the selected Default or Quick SVG → PPTX runtime. It does **not** edit the source file in place, and it is **not** [`template-fill-pptx`](../template-fill-pptx.md) (which clones source slides and replaces text). It also does not parse an arbitrary third-party template for text-only substitution (the rejected #53 direction) — it builds every page from scratch.
+**Hard rule — not a patch, not a fill**: this regenerates a native deck through the selected Default or Quick SVG → PPTX runtime. It does **not** edit the source file in place, and it is **not** [`edit-native-pptx`](../edit-native-pptx.md) (which restores unchanged source slides and edits only planned pages). It also does not parse an arbitrary third-party template for text-only substitution (the rejected #53 direction) — it builds every page from scratch.
 
 **Distinct from mirror templates**: `replication_mode: mirror` ([`executor-structured.md`](../../references/executor-structured.md) §1.1) keeps layout + visuals verbatim and edits text. Beautify is the inverse — content verbatim, layout redone, source identity recommended unless the user overrides it.
 
@@ -60,20 +60,20 @@ two fidelity profiles never compose.
 
 ## 3. Create the Project Workspace
 
-Match the canvas to the source so 1:1 pages and paste-back align. Determine the source aspect first — before the project exists, run `beautify_identity.py <source.pptx>` to **stdout** and read `canvas.aspect` (the formal standard intake bundle is written in Step 4, after `init`) — then `init` with the matching format:
+Match the canvas to the source so 1:1 pages and paste-back align. Determine the source aspect first — before the project exists, run `beautify_identity.py <source.pptx>` to **stdout** and read `canvas.aspect` (the formal standard intake bundle is written in Step 4, after `init`) — then select the source-faithful canvas, passing `--format` only for an exact registered match:
 
-| Source aspect | Format |
+| Source aspect | Canvas |
 |---|---|
 | ≈1.778 (16:9) | `ppt169` |
 | ≈1.333 (4:3) | `ppt43` |
-| other | nearest format in [`canvas-formats.md`](../../references/canvas-formats.md); record the source pixel size in the spec |
+| other | the exact source `width_px`x`height_px`; omit `--format` |
 
 ```bash
 # Default runtime:
-python3 ${SKILL_DIR}/scripts/project_manager.py init <project_name> --format <format>
+python3 ${SKILL_DIR}/scripts/project_manager.py init <project_name> [--format <format>]
 
 # Quick runtime instead:
-python3 ${SKILL_DIR}/scripts/project_manager.py init <project_name> --format <format> --quick-generate
+python3 ${SKILL_DIR}/scripts/project_manager.py init <project_name> [--format <format>] --quick-generate
 
 # Both runtimes then import once:
 python3 ${SKILL_DIR}/scripts/project_manager.py import-sources <project_path> <source.pptx>
@@ -251,8 +251,9 @@ Rows are abbreviated; follow Confirm UI's four-locale contract and omit `english
   "primary_language": "<source main language>",
   "recommend": {
     "canvas": "<step3-canvas-id>",
-    "mode": "briefing",
-    "visual_style": "<closest visual-style id to the source look>",
+    "mode": "custom",
+    "visual_style": "custom",
+    "image_strategy": "custom",
     "icons": "<sensible default icon library>",
     "image_usage": ["provided"]
   },
@@ -264,15 +265,31 @@ Rows are abbreviated; follow Confirm UI's four-locale contract and omit `english
   "delivery_context": { "value": "<primary presenter-led / reader-led / hybrid / recorded; hybrid names its lead and secondary use; occasion if inferable>" },
   "artifact_afterlife": { "value": "<review / approval / archive / hand-off / reuse / none planned>" },
   "content_divergence": { "value": "keep source wording and page structure verbatim", "locked": true },
-  "color": { "selected": 0, "candidates": [
-    { "name_zh": "复刻源 PPT（推荐）", "name_en": "Source replica (recommended)", "name_ja": "元PPTを再現（推奨）", "palette": { "background": "#...", "secondary_bg": "#...", "primary": "#...", "accent": "#...", "secondary_accent": "#...", "body_text": "#..." } },
-    { "name_zh": "实际用色（observed）", "name_en": "Observed palette", "name_ja": "実際の使用色（observed）", "palette": { "background": "#...", "secondary_bg": "#...", "primary": "#...", "accent": "#...", "secondary_accent": "#...", "body_text": "#..." } },
-    { "name_zh": "备选配色 A", "name_en": "Alternative palette A", "name_ja": "代替配色A", "palette": { "background": "#...", "secondary_bg": "#...", "primary": "#...", "accent": "#...", "secondary_accent": "#...", "body_text": "#..." } }
-  ] },
-  "typography": { "selected": 0, "candidates": [
-    { "name_zh": "复刻源 PPT（推荐）", "name_en": "Source replica (recommended)", "name_ja": "元PPTを再現（推奨）", "heading": { "primary": "...", "english": "...", "css": "<PPT-safe stack>" }, "body": { "primary": "...", "english": "...", "css": "<PPT-safe stack>" }, "body_size": <dominant observed.sizes_pt × 4/3, as px> },
-    { "name_zh": "备选字体 A", "name_en": "Alternative pairing A", "name_ja": "代替ペアリングA", "heading": { "primary": "...", "english": "...", "css": "<PPT-safe stack>" }, "body": { "primary": "...", "english": "...", "css": "<PPT-safe stack>" }, "body_size": <canvas-appropriate baseline> },
-    { "name_zh": "备选字体 B", "name_en": "Alternative pairing B", "name_ja": "代替ペアリングB", "heading": { "primary": "...", "english": "...", "css": "<PPT-safe stack>" }, "body": { "primary": "...", "english": "...", "css": "<PPT-safe stack>" }, "body_size": <canvas-appropriate baseline> }
+  "design_directions": { "selected": 0, "candidates": [
+    {
+      "id": "source-replica", "name_en": "Source replica (recommended)",
+      "mode": "custom", "mode_behavior_zh": "briefing 基底；逐页结构、顺序与文字 1:1 逐字不变。",
+      "visual_style": "custom", "visual_style_behavior_zh": "复刻源 PPT 视觉身份与版式。", "icons": "…",
+      "color": { "palette": { "background": "#...", "secondary_bg": "#...", "primary": "#...", "accent": "#...", "secondary_accent": "#...", "body_text": "#..." } },
+      "typography": { "heading": { "primary": "…" }, "body": { "primary": "…" }, "body_size": <dominant observed.sizes_pt × 4/3, as px> },
+      "image_strategy": { "rendering": "custom", "behavior_zh": "…" }
+    },
+    {
+      "id": "alternative-a",
+      "mode": "custom", "mode_behavior_zh": "briefing 基底；逐页结构与文字 1:1 逐字不变。",
+      "visual_style": "custom", "visual_style_behavior_zh": "…", "icons": "…",
+      "color": { "palette": { "background": "#...", "secondary_bg": "#...", "primary": "#...", "accent": "#...", "secondary_accent": "#...", "body_text": "#..." } },
+      "typography": { "heading": { "primary": "…" }, "body": { "primary": "…" }, "body_size": <canvas-appropriate baseline> },
+      "image_strategy": { "rendering": "custom", "behavior_zh": "…" }
+    },
+    {
+      "id": "alternative-b",
+      "mode": "custom", "mode_behavior_zh": "briefing 基底；逐页结构与文字 1:1 逐字不变。",
+      "visual_style": "custom", "visual_style_behavior_zh": "…", "icons": "…",
+      "color": { "palette": { "background": "#...", "secondary_bg": "#...", "primary": "#...", "accent": "#...", "secondary_accent": "#...", "body_text": "#..." } },
+      "typography": { "heading": { "primary": "…" }, "body": { "primary": "…" }, "body_size": <canvas-appropriate baseline> },
+      "image_strategy": { "rendering": "custom", "behavior_zh": "…" }
+    }
   ] }
 }
 ```

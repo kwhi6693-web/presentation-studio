@@ -1,4 +1,4 @@
-> See [`executor-base.md`](./executor-base.md) for the Shape-first page authority and [`shared-standards-core.md`](./shared-standards-core.md) for the mandatory SVG foundation.
+> See [`executor-base.md`](./executor-base.md) for page authoring and [`shared-standards-core.md`](./shared-standards-core.md) for the mandatory SVG foundation and object-local authority boundary.
 
 # Native Data Interface
 
@@ -40,7 +40,29 @@ this enum.
 
 ## 2. PowerPoint-Native Chart / Table Replacement Markers (Opt-in)
 
-[`executor-base.md`](./executor-base.md) remains the single Shape-first authoring authority: the complete visible SVG fallback is required regardless of native eligibility. This section only adds dormant replacement metadata to independently selected objects and defines how export may activate it.
+The complete visible SVG fallback remains required for browser preview and
+default export. Chart/Table authority is nevertheless object-local rather than
+globally Shape-first:
+
+- **SVG-first (default)** — free-design, Brand-only, and Style-only authoring
+  omits `data-pptx-native-authority`. The visible marker subtree is the design
+  authority; JSON is its derived native projection. Canonical authoring records
+  `data-pptx-fallback-sha256` only after the fallback and JSON are synchronized.
+  A later visible edit requires regenerating the JSON and deliberately stamping
+  a new baseline together. Missing or stale baselines leave default fallback
+  export available but make `--native-charts-and-tables` fail closed.
+- **JSON-first (template/native source)** — a validated PPTX import or a
+  template-owned Chart/Table writes
+  `data-pptx-native-authority="json"`. Its inline JSON is the semantic and native
+  authority; the visible SVG subtree is a derived, compact, and potentially
+  approximate preview. JSON edits regenerate that preview before template
+  publication, but preview differences never override the JSON. This marker is
+  legal only on active `chart` / `table` replacement groups, never formulas or
+  fallback-only status markers.
+
+Both forms keep the JSON inside the SVG. `native_payloads.json.gz` is reserved
+for supported opaque shape restoration payloads and never replaces semantic
+Chart/Table JSON.
 
 **Hard rule — selected-object authoring**: write the marker and JSON metadata in
 the same edit for every supported chart and pure text-grid table; both are
@@ -65,7 +87,23 @@ upstream repair.
 `data-pptx-replace-with` marker, and single JSON `<metadata>` child as one
 authoring unit. Write all three while that object's data is in context. Do not
 defer the marker or metadata to `verify-charts`, the final quality gate, or
-export.
+export. SVG-first authoring then stamps the completed visible subtree; JSON-first
+template authoring instead writes the authority marker and derives its preview
+from the inline payload.
+
+After one SVG-first object's fallback and JSON have been reviewed as the same
+authoring transaction, stamp the completed marker explicitly:
+
+```bash
+python3 skills/ppt-master/scripts/stamp_native_fallbacks.py \
+  "<svg-file-or-directory>" --write
+```
+
+Without `--write` the command is read-only. It validates every Chart/Table
+payload before changing anything, skips JSON-first markers, and writes only the
+current visible-subtree fingerprint. The hash is a synchronization receipt; it
+detects later SVG edits but does not itself prove semantic equivalence, so never
+stamp independently authored stale JSON merely to satisfy validation.
 
 **Hard rule — activation is the opt-in, dormant unless exported with `--native-charts-and-tables`**: A marker only declares that a group is eligible for PowerPoint-native Chart/Table replacement. Normal `svg_to_pptx.py` runs keep the fallback SVG children and convert them into independently editable DrawingML shapes. Pass `--native-charts-and-tables` only when the data source and chart/table-specific object model matter more than cross-renderer layout fidelity: it emits the PowerPoint Chart/Table object and skips the fallback children to avoid duplicates. Native styling preserves the core palette, text, axis, grid, and background colors where possible, but it is still a PowerPoint Chart/Table object rather than a pixel-identical SVG drawing.
 
@@ -92,7 +130,9 @@ marker/ancestor `translate` and `scale` transforms apply only when at least one
 bound is inferred. `x`, `y`, `width`, and `height` must be finite and resolve
 inside PowerPoint's 32-bit DrawingML coordinate range; `width` and `height`
 must resolve to at least one EMU. Native table frames must additionally resolve
-to at least one EMU per resolved row and column.
+to at least one EMU per resolved row and column. JSON-first markers require all
+four bounds directly in metadata; an approximate preview never supplies their
+native frame.
 
 **Classic plot-area layout**: supported classic charts accept root `plot_area`;
 ChartEx rejects it. It contains only finite `x`, `y`, `width`, `height` in
@@ -101,11 +141,11 @@ writes `c:manualLayout`; omission keeps automatic layout.
 
 **Validation**: `svg_quality_checker.py` validates replacement marker kind, JSON
 metadata, bounds/fallback availability, table rows/columns, supported chart
-type, chart data shape, and any imported fallback baseline before export.
-
-Imported marker freshness, fallback classification, provenance, and legacy
-read compatibility are operational import concerns. Keep generated authoring
-free of those attributes; use the exact behavior and field index in
+type, chart data shape, and the selected authority contract. Canonical
+SVG-first authoring requires a fresh fallback baseline; JSON-first markers skip
+fallback freshness because their preview is not authoritative. Import
+provenance, fallback classification, and legacy spellings remain operational
+compatibility fields; use the exact field index in
 [`conversion.md`](../scripts/docs/conversion.md#native-table-and-chart-import-claims).
 
 ```xml
@@ -127,9 +167,12 @@ free of those attributes; use the exact behavior and field index in
 </g>
 ```
 
-**Hard rule — transcribe the authored object**: metadata is the native object's
-source of truth and must describe the same data and visible chart/table chrome
-as the fallback drawn in that marker group.
+**Hard rule — project by the selected authority**: for SVG-first authoring,
+metadata is derived from and must describe the same data and visible
+chart/table chrome as the fallback drawn in that marker group. For JSON-first
+template/native-source objects, the inline metadata is authoritative and the
+fallback is only a readable derived preview; approximate preview chrome is not
+a contract mismatch.
 
 | Object | Required projection from the visible fallback |
 |---|---|
@@ -152,18 +195,30 @@ objects have no marker. Finding one marker somewhere on a page is insufficient.
 rg -n 'data-pptx-replace-with="(chart|table)"|<metadata type="application/json">' <project_path>/svg_output/<current_page>.svg
 ```
 
-**Table schema**: Native tables are rectangular DrawingML grids. Use `columns`
-for the optional header row and `rows` for body rows; shorter rows are padded
-with blank cells unless `strict_grid: true` is set. Tables may contain at most
-1000 resolved rows and 1000 resolved columns. Use `column_widths` and
-`row_heights` as relative weights. Weight lists must match the resolved grid,
-contain finite non-negative numbers, and include at least one positive value.
-If present, `header_rows` must be an integer from `0` through the resolved row
-count. Write `strict_grid`, `style.band_row`, and cell `bold` as JSON booleans.
-Cell objects accept `text`, `fill`, `color`,
-`align`, `valign`, `bold`, `font_size`, `padding`, `border_color`, and
-`border_width`, plus optional `lang`; the same `padding`, `border_color`,
-`border_width`, and `lang` keys may also live under `style` as table defaults.
+**Table schema — `ppt-master.semantic-table.v2` only**: Every payload requires
+that exact `schema`; unversioned payloads and alternate field spellings fail.
+Native tables are rectangular DrawingML grids. Use `columns` for the optional
+header row and `rows` for body rows; shorter rows are padded unless
+`strict_grid: true`. Tables support at most 1000 resolved rows and columns.
+`column_widths` / `row_heights` are finite non-negative relative weights that
+match the grid and include one positive value. `header_rows` is an integer in
+the resolved row range. `strict_grid`, `style.band_row`, and `bold` are JSON
+booleans.
+
+PPTX import factors exact repetition into `defaults.cell`,
+`defaults.paragraph`, `defaults.run`, and lower-case kebab-case `cell_styles`;
+cells select a style with `cell_style`. Precedence is cell defaults → named
+style → cell fields. Only object-valued `padding` merges by member; `borders`
+and other values replace. Content/topology stays cell-local. This is JSON
+inheritance, not SVG CSS: `<style>` and `class` are forbidden. Export expands
+the payload in memory before validation and DrawingML construction.
+
+Cells accept `text`, `fill`, `fill_opacity`, `color`, `align`, `valign`, `bold`,
+`font_size`, `padding`, canonical side-specific `padding_*`, `border_color`,
+`border_width`, `borders`, `lang`, `anchor_center`, and
+`horizontal_overflow`. `align` is `l`, `ctr`, or `r`; `valign` is `top`,
+`middle`, or `bottom`. Table-wide font/palette/banding/uniform-border policy
+lives under `style`; exact imported defaults live under `defaults.cell`.
 For multi-paragraph text, replace cell `text` with a non-empty `paragraphs`
 list. Each entry is either a string or an object containing optional
 `align: "l|ctr|r"` and exactly one of `text` or non-empty `runs`; empty
@@ -180,11 +235,12 @@ instead of entering either the native payload or an effect-free fallback.
 Relationship-bearing text, extensions, structural line breaks, fields, tabs,
 bullets, malformed run topology, and unsupported text-body structure remain
 fallback-only.
-Per-side cell borders use `borders.left|right|top|bottom`, where each value is
+Per-side cell borders use
+`borders.left|right|top|bottom|diagonal_down|diagonal_up`, where each value is
 either `{ "style": "none" }` or
 `{ "style": "solid", "color": "#RRGGBB", "width": <positive-px> }`.
-Per-side borders are cell-only; legacy uniform `border_color` / `border_width`
-remain supported as defaults that an individual side may override.
+Per-side borders are cell-only. Uniform `border_color` / `border_width` may live
+on the table style or cell; an explicit side overrides the uniform value.
 When `lang` is absent, export derives `zh-CN` for CJK text and `en-US`
 otherwise. `style.band_row: false` disables both `<a:tblPr bandRow>` and
 materialized alternating row fills. Native table typography mirrors the
@@ -194,17 +250,20 @@ per-cell `font_size` only when the fallback visibly differs. If the fallback
 has no explicit table font, Default uses the deck body family and declared body
 anchor from `spec_lock.md`; Quick uses its active-context body family and size.
 
-**Hard rule — table metadata is the native source of truth**: Every row,
-summary line, value, and cell-level style that must survive
-`--native-charts-and-tables` must be present in `columns` / `rows`. SVG fallback text is
-discarded during native export. `svg_quality_checker.py` warns when visible
-fallback `<text>` inside a native table marker does not appear in metadata.
-For numeric or currency columns, use cell objects with `align: "r"`; SVG
-`text-anchor="end"` does not carry into the native table.
+**Hard rule — table native payload is complete**: A payload holding only `font_size` and a uniform border is not complete when the fallback draws a header band, row or column fills, first-column emphasis, non-uniform row heights, or sparse rules. Every row, summary line,
+value, and cell-level style that must survive `--native-charts-and-tables` must
+be present in `columns` / `rows`; SVG fallback text is discarded on that route.
+For SVG-first objects this payload is a synchronized projection of the visible
+table. For JSON-first template/native-source objects it is the table authority
+and the preview may be approximate. For numeric or currency columns, use cell
+objects with `align: "r"`; SVG `text-anchor="end"` does not carry into the
+native table.
 
 **Merged table cells — canonical rectangular contract only**: Put positive JSON
 integer `row_span` / `col_span` values on the merge anchor and keep every
-covered grid cell blank. Spans must stay within the resolved rectangular grid
+covered grid cell blank: write it as `{"merge_continuation": true}` (a bare
+`{"text": ""}` is also blank, but only while no `defaults.cell` expansion adds
+other fields to it). Spans must stay within the resolved rectangular grid
 and may not overlap. The exporter emits the canonical DrawingML topology
 (`rowSpan` on the top edge, `gridSpan` on the left edge, `hMerge` / `vMerge` on
 covered cells). CamelCase aliases, raw OOXML merge fields, top-level merge lists,
@@ -294,26 +353,32 @@ imply full visual-axis parity.
 `title_font_size`, `subtitle_font_size`, `axis_font_size`,
 `axis_title_font_size`, `legend_font_size`, and `note_font_size` fields are
 required only when the native object must preserve typography that cannot be
-inferred unambiguously from the visible fallback.
+inferred unambiguously from an SVG-first fallback. JSON-first objects do not
+infer typography from their approximate preview; put required values in JSON.
 
-**Chart chrome metadata**: Metadata MUST match fallback chrome. For classic
+**Chart chrome metadata**: SVG-first metadata MUST match fallback chrome.
+JSON-first metadata owns native chrome and may use a simpler preview. For classic
 charts, a string or unbounded-object `title` becomes native `c:title`;
 `subtitle` is line two. A title object with complete `x`, `y`,
 `width`, and `height` becomes a companion editable text box at those absolute
 slide-px bounds; partial bounds or `subtitle` fail. Use `name`, not
 `title`, for object naming. `title`, `subtitle`, and axis-title objects may set
-`text`, `font_size`, `font_family`, and `color`. The checker rejects title/axis
-text absent from the fallback; export omits it with a warning. ChartEx keeps an empty `<cx:title>` and
-emits title/subtitle as companion editable text boxes. Axis
+`text`, `font_size`, `font_family`, and `color`. On SVG-first markers the
+checker rejects title/axis text absent from the fallback and export omits it
+with a warning; JSON-first keeps it. ChartEx writes no `<cx:title>` unless the payload gives a title — an empty ChartEx title makes PowerPoint show the series name as an automatic title — and emits title/subtitle as companion editable text boxes. Axis
 titles are optional and explicit: use `axis_titles` with
 `category`, `value`, `x`, `y`, or `secondary_value` keys, or the root aliases
 `category_axis_title`, `value_axis_title`, `x_axis_title`, `y_axis_title`, and
-`secondary_value_axis_title`; do not add semantic axis titles that are not
-visible in the fallback. Set `show_value_axis_labels: false` when the fallback
+`secondary_value_axis_title`; SVG-first must not add semantic axis titles that
+are absent from the fallback. Set `show_value_axis_labels: false` when the fallback
 keeps category labels but omits numeric value-axis tick labels, such as a radar
 chart without radial coordinates. Native legends are metadata-controlled: use
 `show_legend: true` and `legend_position` only when the fallback's legend is
-meant to be replaced by PowerPoint's native legend.
+meant to be replaced by PowerPoint's native legend. SVG-first parity reads the
+fallback literally: `style.axis_color` must equal the dominant stroke among
+axis and grid lines, numbers match in written form (`286.20` ≠ `286.2`), and
+any marker text that is not a category, data label, axis label, or legend
+entry needs its own companion entry (`note`, `caption`, …).
 Companion text such as `caption`, `source`, `note`, `notes`, `footnote`, and
 `footnotes` is exported as editable PPT text boxes next to the native chart. A
 companion entry may be a string or an object with `text`, `x`, `y`, `width`,
@@ -327,10 +392,11 @@ belong to chart points.
 **Chart color styling**: For classic native charts, `style.colors` sets series
 colors. The exporter also writes explicit chart-area fill, plot-area fill,
 axis line, gridline, and label text colors so PowerPoint does not substitute a
-white/default-theme chart. If omitted, the exporter infers these colors from
-the visible SVG fallback: the largest panel-like `<rect>` becomes the chart
+white/default-theme chart. For SVG-first, omitted values are inferred from
+the visible fallback: the largest panel-like `<rect>` becomes the chart
 background, fallback text supplies label color, and fallback strokes supply
-axis/grid colors. Override any of them explicitly under `style` with
+axis/grid colors. JSON-first uses JSON values or stable exporter defaults, not
+its preview. Override any of them explicitly under `style` with
 `chart_area_fill`, `plot_area_fill`, `text_color`, `axis_color`, and
 `grid_color`; use `"none"` for transparent chart or plot area fill. Generated
 payloads default to uppercase `#RRGGBB`. The exporter retains compatibility for
@@ -339,7 +405,7 @@ payloads default to uppercase `#RRGGBB`. The exporter retains compatibility for
 inversion so negative bars keep the same series fill instead of turning into
 white/theme fill.
 
-For ChartEx native charts, valid payload `style.colors` (or root `colors`)
+For treemap and sunburst, `style.colors` projects the visible tile palette in order; aggregate figures drawn inside the marker belong in companion text. For ChartEx native charts, valid payload `style.colors` (or root `colors`)
 populate the ChartEx color-style part instead of being replaced by a fixed
 accent1–accent6 list. Other ChartEx style semantics remain normalized.
 

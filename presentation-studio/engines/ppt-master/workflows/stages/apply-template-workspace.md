@@ -18,7 +18,6 @@ resolve to one of these current contracts:
 | Input shape | Spec and SVG source | Asset source |
 |---|---|---|
 | Current workspace root | `<root>/templates/design_spec.md`, or one `design_spec.<kind>.<id>.md` per kind, plus `<root>/templates/` | Existing `<root>/images/` and `<root>/icons/` |
-| Compatible legacy-flat Brand/Layout/Deck root | `<root>/design_spec.md`; Layout/Deck also require current-contract SVGs under `<root>/` | Package-local files |
 | Current Create Template handoff | Its exact validated library or project workspace root | Existing portable sibling `images/` and `icons/`; already installed only when the root is the target project |
 
 Spec naming and kind declaration follow [`templates/README.md`](../../templates/README.md); a root exposing several kind-qualified specs contributes all of them. Do not accept only another project's inner `templates/` directory because that omits sibling assets.
@@ -43,9 +42,9 @@ may combine only with non-overlapping kinds. Default permits one explicit root
 beside registered choices; Quick applies the same kind constraint. Reject
 duplicate kinds before validation.
 
-**Hard rule — raw source boundary**: A raw PPTX is not a template workspace. Raw PPTX plus new content uses [`template-fill-pptx`](../template-fill-pptx.md). When the user wants reusable SVG/template generation, run [`create-template`](../create-template.md) first; its validated workspace-root handoff becomes a Stage-1 candidate and is preselected only when it is the sole supplied root. Never add Master/Layout/placeholder structure directly to an existing PPTX or SVG project.
+**Hard rule — raw source boundary**: A raw PPTX is not a template workspace. Raw PPTX plus new content uses [`edit-native-pptx`](../edit-native-pptx.md). When the user wants reusable SVG/template generation, run [`create-template`](../create-template.md) first; its validated workspace-root handoff becomes a Stage-1 candidate and is preselected only when it is the sole supplied root. Never add Master/Layout/placeholder structure directly to an existing PPTX or SVG project.
 
-**Compatibility gate**: Reject semantic-legacy or incomplete structured packages, including old baseline/distillation metadata, incomplete Master identity, or legacy direct atomic placeholders. Create a new current workspace through Create Template; use the original PPTX when native topology must be preserved. A legacy-flat Brand/Layout/Deck directory is readable only when it satisfies its current kind contract; Layout/Deck also require a current structured SVG contract. Style has no legacy-flat form.
+**Current-contract gate**: Reject flat-root, semantic-legacy, or incomplete structured packages, including old baseline/distillation metadata, incomplete Master identity, or legacy direct atomic placeholders. Create a new current workspace through Create Template; use the original PPTX when native topology must be preserved.
 
 ## 2. Read the Matching Schema
 
@@ -66,11 +65,10 @@ registration: Brand/Style are roster-free, the active structure validates its
 roster, and a shadowed Deck still validates its declared contract:
 
 ```bash
-python3 skills/ppt-master/scripts/svg_quality_checker.py "<workspace_root>/templates" --template-mode
+python3 skills/ppt-master/scripts/svg_quality_checker.py "<workspace_root>/templates" --template-mode --canonical-authoring
 ```
 
-Any error blocks installation. A compatible legacy-flat root uses its own root
-as the checker target.
+Any error blocks installation.
 
 ## 3. Structured Preflight
 
@@ -86,8 +84,8 @@ Before copying a Deck or Layout workspace, inspect every SVG root and slot. Bran
 
 Validate each normalized root once. Resolve the effective structural owner as
 Layout when selected, otherwise Deck; install only its SVG/non-bitmap
-structural payload, but install every selected spec. A library or
-compatible legacy-flat root contributes one bare `design_spec.md`; install it
+structural payload, but install every selected spec. A library root contributes
+one bare `templates/design_spec.md`; install it
 as `design_spec.<kind>.<id>.md`, where `<id>` comes from the matching
 frontmatter id field. A current project root may contribute several qualified
 specs; preserve each validated qualified filename. Never merge spec bodies,
@@ -96,7 +94,7 @@ and never copy one multi-kind root's shared SVG or asset pool once per kind.
 | Installed file | Meaning |
 |---|---|
 | `templates/design_spec.<kind>.<id>.md` | A template contribution installed into or authored in this project |
-| `templates/design_spec.md` | Library or compatible legacy-flat source shape only; never valid beside qualified project specs |
+| `templates/design_spec.md` | Library source shape only; never valid beside qualified project specs |
 
 For every copied spec, prepend exactly one provenance line under its H1, then
 leave the rest of the document untouched. An in-place root is not rewritten:
@@ -109,8 +107,12 @@ leave the rest of the document untouched. An in-place root is not rewritten:
 
 - Copy every selected spec from the root to its resolved qualified destination.
 - If the root contributes the effective structural owner, copy its declared
-  SVG roster and other non-bitmap structural files once. Do not copy a Deck
-  roster when Layout is selected; its structure is shadowed by design.
+  SVG roster and other non-bitmap structural files once, including mirror
+  `source_themes.json` when present. Do not copy a Deck roster when Layout is
+  selected; its structure is shadowed by design. Preserve inline
+  `<metadata type="application/json">` and
+  `data-pptx-native-authority="json"` exactly; semantic Chart/Table JSON never
+  moves into a sidecar during installation.
 - Copy the root's real package-owned `images/` and `icons/` files once. A
   Style-only root has none; reject a Style-only library package carrying asset
   or review payloads.
@@ -121,11 +123,9 @@ After that root-level copy, kinds have these downstream effects:
 | Kind | Consumption behavior |
 |---|---|
 | `brand` | Identity is constrained; structure remains free unless the selected set also includes Layout or Deck. |
-| `style` | Expose reusable direction/method without identity truth, page prototypes, or native structure. Default Style-only and Style + Brand derive `template_reuse_scope: style` and stay flat; Style + Layout/Deck follows the selected structure plan. Quick always realizes the resolved combination as flat pages. A Style workspace never activates visual review. |
-| `layout` | Expose the actual reusable structure and take structural precedence over Deck; Default Strategist later inspects these prototypes, while Quick's current agent uses them for immediate flat authoring decisions in active context. |
+| `style` | Expose direction/method without identity, prototypes, or structure. Style-only and Style + Brand stay flat; Style + Layout/Deck follows that structure owner. Style never activates visual review. |
+| `layout` | Expose reusable structure and take precedence over Deck; Default plans against its prototypes, while Quick reads the complete roster and authors its Master/Layout/slot contract directly. |
 | `deck` | Expose descriptive application context and identity. It also supplies structure and the actual prototype roster only when no Layout is selected. |
-
-For a compatible legacy-flat package, route SVG/spec/non-bitmaps to project `templates/`, bitmaps to project `images/`, and declared icons to project `icons/`. Do not infer legacy Master/Layout semantics from the flat directory shape.
 
 **Atomic install preflight**:
 
@@ -150,9 +150,20 @@ agent before direct authoring, and every later role read only
 is installation input, not a later prompt source. If source and target are the
 same project root, that in-place root already satisfies this boundary.
 
-Template SVGs are authoring prototypes, not export-time overlays. The generated page remains complete in `svg_output/`; `page_layouts` selects the complete prototype and its explicit structure contract for authoring.
-Quick instead realizes the selected prototypes into complete flat, Slide-local
-SVGs and never writes `page_layouts` or Master/Layout/placeholder metadata.
+Template SVGs are complete Slide authoring prototypes, not export-time overlays. They already resolve Master + Layout context, so `page_layouts` selects one directly. Standalone Master/Layout definition SVGs are invalid; an unselected authored Slide prototype may still back a reusable Layout definition.
+Default records `page_layouts` and the durable structure lock. Quick has no such
+planning artifact: it freezes the natural-language application paragraph in
+active context and writes the selected Master/Layout/slot contract directly
+into the complete output SVG pages. Quick stays flat only without a Layout/Deck
+structure owner or under an explicit visual-only instruction.
+
+For a template-owned Chart/Table carrying
+`data-pptx-native-authority="json"`, the installed inline JSON remains the
+object's data/native authority. A generated page may retain its existing compact
+preview or regenerate an approximate preview from updated JSON, but it must not
+derive replacement JSON from that preview. Keep the authority marker and JSON
+inside the generated SVG so default fallback and explicit native export remain
+two renderings of one object contract.
 
 
 ## 5. Segment Precedence Is Resolved While Reading

@@ -18,7 +18,7 @@ Conditional Executor authority for `template_reuse_scope: mirror|layout` with `p
 | Current page mapping | Read the retained `spec_lock.md page_layouts` row; a page change does not require another file load |
 | Selected prototype SVG | Read the complete `templates/<basename>.svg` once per valid context and reuse it until a known change or context invalidation |
 
-**Hard rule**: The complete prototype SVG is authoritative. An on-demand page-context result may fingerprint it but carries no prototype payload; never author from a roster, manifest, sidecar, filename, or summary alone.
+**Hard rule**: The complete Slide prototype SVG is authoritative and already resolves its Master + Layout context. Standalone Master/Layout definition SVGs are invalid. An on-demand page-context result may fingerprint the selected Slide prototype but carries no payload; never author from a roster, manifest, sidecar, filename, or summary alone.
 
 Manifest/text-slot files are derived tool metadata, not model inputs. Missing metadata neither invalidates a legacy workspace nor permits text-topology changes.
 
@@ -53,16 +53,16 @@ Resolve the per-page template SVG directly from the owning `spec_lock.md page_la
 When `spec_lock.md` records the AI-derived `template_reuse_scope: mirror`, Executor switches to a literal replacement path. The workspace capability `replication_mode: mirror` is a prerequisite, not the trigger by itself:
 
 1. **Per-page reference selection** — Strategist selects one mirror page per project page via `spec_lock.md page_layouts` (e.g., `P04: 015_content`). The basename is the mirror filename without extension; Strategist made this choice by reading `design_spec.md §V Page Roster` descriptions, not by guessing.
-2. **Copy, don't fill** — use the retained full mirror SVG as the starting point, then edit slide-specific text in place. Preserve every non-text element and every `data-pptx-*` structure attribute verbatim. Do not reopen the same path + SHA merely because another page selects it.
+2. **Copy, don't fill** — use the retained full mirror SVG as the starting point, then edit slide-specific text in place. Preserve every ordinary non-text element and every `data-pptx-*` structure attribute verbatim. The sole exception is a direct JSON-first Chart/Table: keep its marker id/kind/authority and metadata unchanged, while derived preview children may be regenerated from that JSON. Do not reopen the same path + SHA merely because another page selects it.
 3. **What you may edit** — decide the semantic slot mapping and replacement text only. Change only visible string values already carried by `<text>` and `<tspan>` nodes that express slide-specific content (title, body, captions, KPI labels, dates, page numbers). Keep the number, order, nesting relationship, and **all attributes** of every `<text>` / `<tspan>` node unchanged. Never merge or split nodes, move a string between nodes, add a new tspan, or delete an empty carrier. `svg_quality_checker.py` and export validate attributes, topology, and prototype hashes against the complete prototype internally.
-4. **What you must not touch** — element positions, sizes, fonts, colors, fills, strokes, gradients, **which image each `<image>` points at**, `<g>` grouping, sprite-sheet `<svg viewBox>` wrappers, decorative `<rect>` / `<path>` / `<circle>` / `<polygon>` shapes, `<use data-icon="...">` markers, embedded chart data structures. Mirror's value is preserving the source deck's visual identity — any geometric / decorative drift defeats the purpose. **The `href` path is not the image**: normalizing a bare `href="cover_bg.png"` to `href="../images/<name>"` (when Step 3 relocated the asset to `images/`) points at the *same* image and changes nothing visual — that is an allowed path fix, not a fidelity edit. Leaving the bare href as-is is also fine; the exporter and live preview resolve bare hrefs against `images/` either way.
+4. **What you must not touch** — element positions, sizes, fonts, colors, fills, strokes, gradients, **which image each ordinary `<image>` points at**, `<g>` grouping, sprite-sheet `<svg viewBox>` wrappers, decoration, `<use data-icon="...">` markers, or authoritative embedded Chart/Table JSON. JSON-first preview images/shapes are derived and excluded from this literal identity rule. **The `href` path is not the image**: normalize a bare `href="cover_bg.png"` to the exact `href="../images/<name>"` when Step 3 relocates those same bytes to `images/`; this required transport rewrite changes nothing visual. Do not leave the bare href or point back into the source template.
 5. **Content fit** — if the replacement needs a different number of text segments/items, do not merge/split nodes, drop sourced content, or restructure the grid. Report `warning: P<NN> content does not fit mirror reference <basename>; choose another prototype or change template_reuse_scope to layout/style`, then return to Strategist to select the prototype or scope and update the planning mappings.
 6. **Visible text editing** — mirror SVGs may keep literal source text rather than `{{...}}` authoring markers. Edit values in place while retaining imported semantic `data-pptx-placeholder` identity and exact text topology.
 7. **Output filename** — follow the standard project SVG naming convention (`<index>_<page_name>.svg` where `<index>` matches the project page index, not the mirror source index). The mirror filename is the *reference*, not the *output*.
 
 **Detecting mirror mode**: read `template_reuse_scope` from the retained lock. `replication_mode: mirror` in the installed template only determines whether that scope is legal; it must never force mirror behavior when the lock records `layout` or `style`.
 
-**Mirror + visualization pages**: Chart, Table, and qualitative topology inside a mirror SVG are already drawn. Replace only permitted text while preserving prototype geometry; do not redraw from a catalog SVG or runtime grammar. A mirror template normally omits `page_visualizations`, and legacy `page_charts` never overrides fidelity.
+**Mirror + visualization pages**: Chart, Table, and qualitative topology inside a mirror SVG are already authored. Replace only permitted text and do not redraw from a catalog/runtime grammar. A JSON-first Chart/Table may refresh its approximate preview from unchanged authoritative JSON; this never permits metadata, bounds, marker, slot, or ordinary-visual drift. A mirror template normally omits `page_visualizations`, and legacy `page_charts` never overrides fidelity.
 
 **Legacy template boundary**: A template with missing root Master identity, direct atomic placeholders, `data-pptx-layout-kind`, unmapped `baseline`, `preserve`, or `layout_strategy: distill` is not a fallback input. Stop and create a new current workspace through [`create-template`](../workflows/create-template.md) before generation.
 
@@ -72,7 +72,7 @@ Before generating each page, output which template is used:
 
 ```
 📝 **Template mapping**: `templates/03a_content_image_text.svg` (free-design routes may use "None")
-🎯 **Adherence rules / layout strategy**: [specific description]
+🎯 **Adherence rules / application plan**: [specific description]
 ```
 
 - **Content pages**: template defines only header/footer; content area is free
