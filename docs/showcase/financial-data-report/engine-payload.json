@@ -1,0 +1,16 @@
+{
+  "product_id": "native-data-deck",
+  "engine": "ppt-master",
+  "target_types": ["native-chart", "native-table"],
+  "render_mode": "native-objects",
+  "manual_redraw_allowed": false,
+  "provenance": "public illustrative demo dataset created for this repository showcase",
+  "labels": ["Segment", "Quarter", "Revenue (USD m)", "Gross Profit (USD m)", "Gross Margin"],
+  "binding_targets": [
+    {"field": "segment", "target_type": "native-table"},
+    {"field": "quarter", "target_type": "native-table"},
+    {"field": "revenue_usd_m", "target_type": "native-chart"},
+    {"field": "gross_profit_usd_m", "target_type": "native-chart"},
+    {"field": "gross_margin", "target_type": "native-table"}
+  ]
+}

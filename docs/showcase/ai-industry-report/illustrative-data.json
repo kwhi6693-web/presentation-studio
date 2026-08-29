@@ -1,0 +1,22 @@
+{
+  "data_status": "illustrative_demo_data",
+  "disclaimer": "These values are intentionally illustrative and are not current-market claims.",
+  "adoption_index": {
+    "Prompt only": 34,
+    "Reusable skills": 56,
+    "Structured data": 72,
+    "Quality-gated run": 88
+  },
+  "buyer_priority_index": {
+    "Output editability": 92,
+    "Data fidelity": 88,
+    "Traceability": 78,
+    "Route flexibility": 66
+  },
+  "timeline": [
+    "Prompt + prototype",
+    "Skill + route",
+    "Data + contract",
+    "Autonomous ops"
+  ]
+}

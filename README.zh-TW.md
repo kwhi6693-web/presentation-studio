@@ -12,43 +12,71 @@
 [![Style profiles: 8](https://img.shields.io/badge/Style%20profiles-8-805ad5?style=flat-square)](presentation-studio/catalog/styles.json)
 [![授權：AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg?style=flat-square)](LICENSE)
 
-![Presentation Studio 展示：編輯型投影片、圖表與視覺版面](presentation-studio/engines/guizang/assets/ppt-skill-showcase.png)
+![Presentation Studio — 本輪真實生成的 Showcase](docs/social-preview.png)
 
 ## 為什麼使用 Presentation Studio
 
-從 brief、結構化資料或既有素材開始。Presentation Studio 會選擇產品與引擎路由，明確保留資料契約，並在交付前檢查輸出。
+從提示詞或結構化資料開始，得到可以開啟、編輯、檢查並重用的簡報成果。
 
 | 可編輯 PPTX | 多格式輸出 | Agent 適配 | 品質門禁 |
 |---|---|---|---|
-| 在所選 route 支援時，使用原生文字、圖表、表格與形狀 | 支援 PPTX、HTML、PDF、PNG 與 SVG 路徑 | 基於 Catalog 的選擇會適配執行時實際可用的宿主能力 | 驗證、渲染、檢查、修復，再次驗證 |
+| 在支援的 route 上保留原生文字、圖表、表格、形狀與連接線 | PPTX、HTML、PDF、PNG 與 SVG | 基於 Catalog 的 route 會適配執行時實際可用的宿主能力 | 驗證、渲染、檢查、修復，再次驗證 |
 
 ## 展示案例
 
-以下案例代表常見的簡報路線。標記為 **驗收 fixture** 的連結是儲存庫內可驗證的契約輸出；它們不被描述為生產基準，也不是生成式產品 Demo 的截圖。
+下面四套案例是本儲存庫本輪根據可追溯 prompt 與示例資料真實生成的成果，不是驗收 fixture、舊參考截圖或概念佔位圖。
 
-| 案例 | Prompt | 預覽 / 輸出 | 引擎 / route 與可編輯性 |
-|---|---|---|---|
-| **AI 產業報告** | 「把產業 brief 轉成一份簡潔的 16:9 高階主管報告，並提供可編輯的摘要頁。」 | [英文 PPTX](examples/bilingual-acceptance/en/presentation-acceptance-en.pptx) · [PDF 預覽](examples/bilingual-acceptance/en/presentation-acceptance-en.pdf)（驗收 fixture） | `executive-deck` → `ppt-master`；原生可編輯 PPTX 路徑 |
-| **財務 / 資料報告** | 「使用提供的指標，不改變數值、單位、順序或缺失值；交付可編輯圖表與表格。」 | [英文 PPTX](examples/bilingual-acceptance/en/presentation-acceptance-en.pptx) · [HTML](examples/bilingual-acceptance/en/presentation-acceptance-en.html)（驗收 fixture） | `native-data-deck` → `ppt-master`；原生圖表與表格 |
-| **Swiss Editorial Deck** | 「以克制的排版、清晰的字體層級和編輯式節奏完成策略敘事，並提供適合 Web 閱讀的版本。」 | [現有 Swiss 視覺素材](presentation-studio/engines/guizang/assets/ppt-skill-showcase.png) | `swiss-editorial-deck` → `guizang` → `ppt-master` → `frontend-slides`；PPTX 可編輯性取決於 route，HTML 是發布型輸出 |
-| **技術架構** | 「說清楚系統邊界、資料流與運行模型，形成適合評審的架構簡報。」 | [架構說明](docs/architecture.md) · [圖示參考](presentation-studio/references/diagrams-infographics.md) | `technical-deck` → `ppt-master` 生成可編輯 PPTX，或 `technical-diagram` → `baoyu` 生成可編輯 SVG |
+### AI 產業報告
 
-儲存庫目前提供的是契約 fixture 與引擎參考視覺素材，而不是四套領域生產成品。這樣可以保持展示真實，同時明確每條路線的目標、輸出和可編輯性邊界。
+![AI 產業報告預覽](docs/showcase/ai-industry-report/preview.png)
+
+- **Prompt：** [prompt.md](docs/showcase/ai-industry-report/prompt.md)
+- **輸出：** [PPTX](docs/showcase/ai-industry-report/ai-industry-report.pptx) · [HTML](docs/showcase/ai-industry-report/ai-industry-report.html) · [PDF](docs/showcase/ai-industry-report/ai-industry-report.pdf)
+- **Route：** `ppt-master → native-editable-deck`；PPTX 中的文字、形狀和圖表為原生物件，圖表數字明確標註為 illustrative demo data。
+- **目錄：** [docs/showcase/ai-industry-report](docs/showcase/ai-industry-report/)
+
+### 財務 / 資料報告
+
+![財務 / 資料報告預覽](docs/showcase/financial-data-report/preview.png)
+
+- **Prompt：** [prompt.md](docs/showcase/financial-data-report/prompt.md)
+- **輸出：** [PPTX](docs/showcase/financial-data-report/financial-data-report.pptx) · [HTML](docs/showcase/financial-data-report/financial-data-report.html) · [PDF](docs/showcase/financial-data-report/financial-data-report.pdf)
+- **Route：** `ppt-master → native-data-deck`；PPTX 包含原生圖表與原生表格，數值和順序與 [financial-data.csv](docs/showcase/financial-data-report/financial-data.csv) 及 [精準資料證據](docs/showcase/financial-data-report/exact-data-manifest.json) 對照驗證。
+- **目錄：** [docs/showcase/financial-data-report](docs/showcase/financial-data-report/)
+
+### Swiss 編輯式簡報
+
+![Swiss 編輯式簡報預覽](docs/showcase/swiss-editorial-deck/preview.png)
+
+- **Prompt：** [prompt.md](docs/showcase/swiss-editorial-deck/prompt.md)
+- **輸出：** [HTML](docs/showcase/swiss-editorial-deck/swiss-editorial-deck.html) · [PPTX companion](docs/showcase/swiss-editorial-deck/swiss-editorial-deck.pptx) · [PDF](docs/showcase/swiss-editorial-deck/swiss-editorial-deck.pdf)
+- **Route：** `guizang → ppt-master → frontend-slides`；HTML 是主要可瀏覽成果，PPTX companion 保留文字和幾何圖形為原生物件，但可編輯性為部分支援。
+- **目錄：** [docs/showcase/swiss-editorial-deck](docs/showcase/swiss-editorial-deck/)
+
+### 技術架構
+
+![技術架構預覽](docs/showcase/technical-architecture/preview.png)
+
+- **Prompt：** [prompt.md](docs/showcase/technical-architecture/prompt.md)
+- **輸出：** [PPTX](docs/showcase/technical-architecture/technical-architecture.pptx) · [HTML](docs/showcase/technical-architecture/technical-architecture.html) · [PDF](docs/showcase/technical-architecture/technical-architecture.pdf)
+- **Route：** `ppt-master → technical-deck`；四頁圖示由原生 PPTX 形狀和連接線組成，邊界記錄在 [architecture.json](docs/showcase/technical-architecture/architecture.json)。
+- **目錄：** [docs/showcase/technical-architecture](docs/showcase/technical-architecture/)
 
 ## 快速開始
 
-1. 下載[最新 Release](https://github.com/kwhi6693-web/presentation-studio/releases/latest)，並使用對應的 `.sha256` 檔案校驗 `presentation-studio.zip`。
-2. 解壓得到唯一的 `presentation-studio/` Skill 根目錄，並讓你的 Agent/Harness 發現它。
-3. 從下面這樣的 brief 開始：
+1. 下載[最新 Release](https://github.com/kwhi6693-web/presentation-studio/releases/latest)，並使用對應 `.sha256` 檔案校驗 `presentation-studio.zip`。
+2. 解壓 `presentation-studio/` Skill 根目錄，放入 Agent/Harness 使用的 Skill 目錄。
+3. 給 Agent 一段類似這樣的 prompt：
 
 ```text
-根據提供的季度 CSV 製作一份 16:9 財務報告。
-返回可編輯 PPTX，保留所有數值和單位，並在交付前檢查圖表、表格、溢出和資料保真度。
+根據這份 CSV 製作一份 16:9 季度報告。
+返回可編輯 PPTX、HTML 和 PDF，保留每個數值與單位，
+並在交付前檢查每一頁的版面和資料保真度。
 ```
 
-完整的[安裝](#安裝)、[使用](#使用)和按能力劃分的驗證說明見下文。
+4. 得到帶有適用驗證邊界記錄的 PPTX、HTML 和/或 PDF 成品。
 
-下面繼續保留面向實作與維護的工程模型、相容性邊界和驗證契約。
+完整的[安裝](#安裝)、[使用](#使用)和按能力劃分的驗證說明見下文。
 
 ## 🧭 專案概覽
 
@@ -291,9 +319,9 @@ brief + 資料 + 素材
 | 精準資料與既有素材 | manifest、型別/順序/單位校驗、溯源 | 原生或視覺交付物 |
 | 宿主能力報告 | 引擎選擇與渲染 QA 門禁 | 帶證據的 PASS / PARTIAL / FAIL |
 
-## 🎞️ 真實範例
+## 🎞️ 契約 fixture
 
-以下六個儲存庫內檔案是真實驗收 fixture，用於驗證儲存庫契約。它們由 `scripts/verify_examples.py` 進行結構化驗證；fixture 通過不代表每個宿主都重新執行了所有可選渲染器或 Provider。
+以下六個儲存庫內檔案是用於驗證儲存庫契約的檢查 fixture，不是上方公開 Showcase 的 Demo。它們由 `scripts/verify_examples.py` 進行結構化驗證；fixture 通過不代表每個宿主都重新執行了所有可選渲染器或 Provider。
 
 | Fixture 集合 | 交付物 | 涵蓋內容 |
 |---|---|---|

@@ -12,43 +12,71 @@
 [![Style profiles: 8](https://img.shields.io/badge/Style%20profiles-8-805ad5?style=flat-square)](presentation-studio/catalog/styles.json)
 [![许可证：AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg?style=flat-square)](LICENSE)
 
-![Presentation Studio 展示：编辑型幻灯片、图表与视觉布局](presentation-studio/engines/guizang/assets/ppt-skill-showcase.png)
+![Presentation Studio — 本轮真实生成的 Showcase](docs/social-preview.png)
 
 ## 为什么选择 Presentation Studio
 
-从 brief、结构化数据或已有素材开始。Presentation Studio 会选择产品与引擎路由，明确保留数据契约，并在交付前检查输出。
+从提示词或结构化数据开始，得到可以打开、编辑、检查并复用的演示成果。
 
 | 可编辑 PPTX | 多格式输出 | Agent 适配 | 质量门禁 |
 |---|---|---|---|
-| 在所选 route 支持时，使用原生文本、图表、表格与形状 | 支持 PPTX、HTML、PDF、PNG 与 SVG 路径 | 基于 Catalog 的选择会适配运行时实际可用的宿主能力 | 验证、渲染、检查、修复，再次验证 |
+| 在支持的 route 上保留原生文本、图表、表格、形状与连接线 | PPTX、HTML、PDF、PNG 与 SVG | 基于 Catalog 的 route 会适配运行时实际可用的宿主能力 | 验证、渲染、检查、修复，再次验证 |
 
 ## 展示案例
 
-以下案例代表常见的演示文稿路线。标记为 **验收 fixture** 的链接是仓库内可验证的契约输出；它们不被描述为生产基准，也不是生成式产品 Demo 的截图。
+下面四套案例是本仓库本轮根据可追溯 prompt 与示例数据真实生成的成果，不是验收 fixture、旧参考截图或概念占位图。
 
-| 案例 | Prompt | 预览 / 输出 | 引擎 / route 与可编辑性 |
-|---|---|---|---|
-| **AI 行业报告** | “把行业 brief 转成一份简洁的 16:9 高管报告，并提供可编辑的总结页。” | [英文 PPTX](examples/bilingual-acceptance/en/presentation-acceptance-en.pptx) · [PDF 预览](examples/bilingual-acceptance/en/presentation-acceptance-en.pdf)（验收 fixture） | `executive-deck` → `ppt-master`；原生可编辑 PPTX 路径 |
-| **财务 / 数据报告** | “使用提供的指标，不改变数值、单位、顺序或缺失值；交付可编辑图表与表格。” | [英文 PPTX](examples/bilingual-acceptance/en/presentation-acceptance-en.pptx) · [HTML](examples/bilingual-acceptance/en/presentation-acceptance-en.html)（验收 fixture） | `native-data-deck` → `ppt-master`；原生图表与表格 |
-| **Swiss Editorial Deck** | “用克制的排版、清晰的字体层级和编辑式节奏完成策略叙事，并提供适合 Web 阅读的版本。” | [现有 Swiss 视觉素材](presentation-studio/engines/guizang/assets/ppt-skill-showcase.png) | `swiss-editorial-deck` → `guizang` → `ppt-master` → `frontend-slides`；PPTX 可编辑性取决于 route，HTML 是发布型输出 |
-| **技术架构** | “把系统边界、数据流和运行模型讲清楚，形成适合评审的架构演示。” | [架构说明](docs/architecture.md) · [图示参考](presentation-studio/references/diagrams-infographics.md) | `technical-deck` → `ppt-master` 生成可编辑 PPTX，或 `technical-diagram` → `baoyu` 生成可编辑 SVG |
+### AI 行业报告
 
-仓库当前提供的是契约 fixture 与引擎参考视觉素材，而不是四套领域生产成品。这样可以保持展示真实，同时明确每条路线的目标、输出和可编辑性边界。
+![AI 行业报告预览](docs/showcase/ai-industry-report/preview.png)
+
+- **Prompt：** [prompt.md](docs/showcase/ai-industry-report/prompt.md)
+- **输出：** [PPTX](docs/showcase/ai-industry-report/ai-industry-report.pptx) · [HTML](docs/showcase/ai-industry-report/ai-industry-report.html) · [PDF](docs/showcase/ai-industry-report/ai-industry-report.pdf)
+- **Route：** `ppt-master → native-editable-deck`；PPTX 中的文字、形状和图表为原生对象，图表数字明确标注为 illustrative demo data。
+- **目录：** [docs/showcase/ai-industry-report](docs/showcase/ai-industry-report/)
+
+### 财务 / 数据报告
+
+![财务 / 数据报告预览](docs/showcase/financial-data-report/preview.png)
+
+- **Prompt：** [prompt.md](docs/showcase/financial-data-report/prompt.md)
+- **输出：** [PPTX](docs/showcase/financial-data-report/financial-data-report.pptx) · [HTML](docs/showcase/financial-data-report/financial-data-report.html) · [PDF](docs/showcase/financial-data-report/financial-data-report.pdf)
+- **Route：** `ppt-master → native-data-deck`；PPTX 包含原生图表与原生表格，数值和顺序与 [financial-data.csv](docs/showcase/financial-data-report/financial-data.csv) 及 [精确数据证据](docs/showcase/financial-data-report/exact-data-manifest.json) 对照验证。
+- **目录：** [docs/showcase/financial-data-report](docs/showcase/financial-data-report/)
+
+### Swiss 编辑式演示
+
+![Swiss 编辑式演示预览](docs/showcase/swiss-editorial-deck/preview.png)
+
+- **Prompt：** [prompt.md](docs/showcase/swiss-editorial-deck/prompt.md)
+- **输出：** [HTML](docs/showcase/swiss-editorial-deck/swiss-editorial-deck.html) · [PPTX companion](docs/showcase/swiss-editorial-deck/swiss-editorial-deck.pptx) · [PDF](docs/showcase/swiss-editorial-deck/swiss-editorial-deck.pdf)
+- **Route：** `guizang → ppt-master → frontend-slides`；HTML 是主要可浏览成果，PPTX companion 保留文字和几何图形为原生对象，但可编辑性为部分支持。
+- **目录：** [docs/showcase/swiss-editorial-deck](docs/showcase/swiss-editorial-deck/)
+
+### 技术架构
+
+![技术架构预览](docs/showcase/technical-architecture/preview.png)
+
+- **Prompt：** [prompt.md](docs/showcase/technical-architecture/prompt.md)
+- **输出：** [PPTX](docs/showcase/technical-architecture/technical-architecture.pptx) · [HTML](docs/showcase/technical-architecture/technical-architecture.html) · [PDF](docs/showcase/technical-architecture/technical-architecture.pdf)
+- **Route：** `ppt-master → technical-deck`；四页图示由原生 PPTX 形状和连接线组成，边界记录在 [architecture.json](docs/showcase/technical-architecture/architecture.json)。
+- **目录：** [docs/showcase/technical-architecture](docs/showcase/technical-architecture/)
 
 ## 快速开始
 
-1. 下载[最新 Release](https://github.com/kwhi6693-web/presentation-studio/releases/latest)，并使用对应的 `.sha256` 文件校验 `presentation-studio.zip`。
-2. 解压得到唯一的 `presentation-studio/` Skill 根目录，并让你的 Agent/Harness 发现它。
-3. 从下面这样的 brief 开始：
+1. 下载[最新 Release](https://github.com/kwhi6693-web/presentation-studio/releases/latest)，并使用对应 `.sha256` 文件校验 `presentation-studio.zip`。
+2. 解压 `presentation-studio/` Skill 根目录，放入 Agent/Harness 使用的 Skill 目录。
+3. 给 Agent 一段类似这样的 prompt：
 
 ```text
-根据提供的季度 CSV 制作一份 16:9 财务报告。
-返回可编辑 PPTX，保留所有数值和单位，并在交付前检查图表、表格、溢出和数据保真度。
+根据这份 CSV 制作一份 16:9 季度报告。
+返回可编辑 PPTX、HTML 和 PDF，保留每个数值与单位，
+并在交付前检查每一页的布局和数据保真度。
 ```
 
-完整的[安装](#安装)、[使用](#使用)和按能力划分的验证说明见下文。
+4. 得到带有适用验证边界记录的 PPTX、HTML 和/或 PDF 成品。
 
-下面继续保留面向实现与维护的工程模型、兼容性边界和验证契约。
+完整的[安装](#安装)、[使用](#使用)和按能力划分的验证说明见下文。
 
 ## 🧭 项目概览
 
@@ -291,9 +319,9 @@ brief + 数据 + 素材
 | 精准数据与已有素材 | manifest、类型/顺序/单位校验、溯源 | 原生或视觉交付物 |
 | 宿主能力报告 | 引擎选择与渲染 QA 门禁 | 带证据的 PASS / PARTIAL / FAIL |
 
-## 🎞️ 真实示例
+## 🎞️ 契约 fixture
 
-以下六个仓库内文件是真实验收 fixture，用于验证仓库契约。它们由 `scripts/verify_examples.py` 进行结构化验证；fixture 通过不代表每个宿主都重新执行了所有可选渲染器或 Provider。
+以下六个仓库内文件是用于验证仓库契约的检查 fixture，不是上方公开 Showcase 的 Demo。它们由 `scripts/verify_examples.py` 进行结构化验证；fixture 通过不代表每个宿主都重新执行了所有可选渲染器或 Provider。
 
 | Fixture 集合 | 交付物 | 覆盖内容 |
 |---|---|---|

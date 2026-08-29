@@ -12,44 +12,71 @@
 [![Style profiles: 8](https://img.shields.io/badge/Style%20profiles-8-805ad5?style=flat-square)](presentation-studio/catalog/styles.json)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg?style=flat-square)](LICENSE)
 
-![Presentation Studio showcase: editorial slides, charts, and visual layouts](presentation-studio/engines/guizang/assets/ppt-skill-showcase.png)
+![Presentation Studio — real generated showcases](docs/social-preview.png)
 
 ## Why Presentation Studio
 
-Start with a brief, structured data, or existing assets. Presentation Studio selects a product and engine route, keeps the data contract explicit, and delivers outputs that can be inspected before handoff.
+Turn a prompt or structured dataset into a presentation artifact that can be opened, edited, inspected, and reused.
 
 | Editable PPTX | Multi-format output | Agent-compatible | Quality-gated |
 |---|---|---|---|
-| Native text, charts, tables, and shapes when the selected route supports them | PPTX, HTML, PDF, PNG, and SVG routes | Catalog-backed choices that adapt to the host capabilities available at runtime | Validate, render, inspect, repair, and verify again |
+| Native text, charts, tables, shapes, and connectors on routes that support them | PPTX, HTML, PDF, PNG, and SVG | Catalog-backed routes adapt to the host capabilities available at runtime | Validate, render, inspect, repair, and verify again |
 
 ## Showcase
 
-The examples below are representative routes for common presentation work. Links marked **acceptance fixture** are checked-in, verifiable contract outputs; they are not presented as production benchmarks or as screenshots of a generated product demo.
+These four examples were generated for this repository from traceable prompts and source data. They are real outputs, not acceptance fixtures, old reference screenshots, or conceptual placeholders.
 
-| Demo | Prompt | Preview / output | Engine / route and editability |
-|---|---|---|---|
-| **AI Industry Report** | “Turn an industry brief into a concise 16:9 executive report with an editable summary slide.” | [English PPTX](examples/bilingual-acceptance/en/presentation-acceptance-en.pptx) · [PDF preview](examples/bilingual-acceptance/en/presentation-acceptance-en.pdf) *(acceptance fixture)* | `executive-deck` → `ppt-master`; native-editable PPTX route |
-| **Financial / Data Report** | “Use the supplied metrics without changing values, units, order, or missing values; deliver editable charts and tables.” | [English PPTX](examples/bilingual-acceptance/en/presentation-acceptance-en.pptx) · [HTML](examples/bilingual-acceptance/en/presentation-acceptance-en.html) *(acceptance fixture)* | `native-data-deck` → `ppt-master`; native charts and tables |
-| **Swiss Editorial Deck** | “Build a restrained strategy narrative with strong typography, editorial pacing, and a web-readable companion.” | [Existing Swiss visual asset](presentation-studio/engines/guizang/assets/ppt-skill-showcase.png) | `swiss-editorial-deck` → `guizang` → `ppt-master` → `frontend-slides`; PPTX editability is route-dependent, HTML is publication output |
-| **Technical Architecture** | “Explain the system boundary, data flow, and operating model in a review-ready architecture deck.” | [Architecture guide](docs/architecture.md) · [Diagram reference](presentation-studio/references/diagrams-infographics.md) | `technical-deck` → `ppt-master` for editable PPTX, or `technical-diagram` → `baoyu` for editable SVG |
+### AI Industry Report
 
-The repository currently ships contract fixtures and engine reference visuals rather than four domain-specific production decks. This keeps the showcase honest while making the intended route, output, and editability boundary explicit.
+![AI Industry Report preview](docs/showcase/ai-industry-report/preview.png)
+
+- **Prompt:** [prompt.md](docs/showcase/ai-industry-report/prompt.md)
+- **Output:** [PPTX](docs/showcase/ai-industry-report/ai-industry-report.pptx) · [HTML](docs/showcase/ai-industry-report/ai-industry-report.html) · [PDF](docs/showcase/ai-industry-report/ai-industry-report.pdf)
+- **Route:** `ppt-master → native-editable-deck`; text, shapes, and charts are native in the PPTX. The figures are clearly labeled illustrative demo data.
+- **Directory:** [docs/showcase/ai-industry-report](docs/showcase/ai-industry-report/)
+
+### Financial / Data Report
+
+![Financial / Data Report preview](docs/showcase/financial-data-report/preview.png)
+
+- **Prompt:** [prompt.md](docs/showcase/financial-data-report/prompt.md)
+- **Output:** [PPTX](docs/showcase/financial-data-report/financial-data-report.pptx) · [HTML](docs/showcase/financial-data-report/financial-data-report.html) · [PDF](docs/showcase/financial-data-report/financial-data-report.pdf)
+- **Route:** `ppt-master → native-data-deck`; the PPTX contains a native chart and native table. Values and order are checked against [financial-data.csv](docs/showcase/financial-data-report/financial-data.csv) through the [exact-data evidence](docs/showcase/financial-data-report/exact-data-manifest.json).
+- **Directory:** [docs/showcase/financial-data-report](docs/showcase/financial-data-report/)
+
+### Swiss Editorial Deck
+
+![Swiss Editorial Deck preview](docs/showcase/swiss-editorial-deck/preview.png)
+
+- **Prompt:** [prompt.md](docs/showcase/swiss-editorial-deck/prompt.md)
+- **Output:** [HTML](docs/showcase/swiss-editorial-deck/swiss-editorial-deck.html) · [PPTX companion](docs/showcase/swiss-editorial-deck/swiss-editorial-deck.pptx) · [PDF](docs/showcase/swiss-editorial-deck/swiss-editorial-deck.pdf)
+- **Route:** `guizang → ppt-master → frontend-slides`; the HTML is the primary browsable artifact, while the PPTX companion keeps text and geometry native with partial editability.
+- **Directory:** [docs/showcase/swiss-editorial-deck](docs/showcase/swiss-editorial-deck/)
+
+### Technical Architecture
+
+![Technical Architecture preview](docs/showcase/technical-architecture/preview.png)
+
+- **Prompt:** [prompt.md](docs/showcase/technical-architecture/prompt.md)
+- **Output:** [PPTX](docs/showcase/technical-architecture/technical-architecture.pptx) · [HTML](docs/showcase/technical-architecture/technical-architecture.html) · [PDF](docs/showcase/technical-architecture/technical-architecture.pdf)
+- **Route:** `ppt-master → technical-deck`; four diagram-led pages use native PPTX shapes and connectors, with the boundary recorded in [architecture.json](docs/showcase/technical-architecture/architecture.json).
+- **Directory:** [docs/showcase/technical-architecture](docs/showcase/technical-architecture/)
 
 ## Quick Start
 
 1. Download the [latest release](https://github.com/kwhi6693-web/presentation-studio/releases/latest) and verify `presentation-studio.zip` with its `.sha256` file.
-2. Extract the single `presentation-studio/` Skill root and make it available to your Agent/Harness.
-3. Start with a brief such as:
+2. Extract the `presentation-studio/` Skill root into the directory your Agent/Harness uses for skills.
+3. Give your Agent a prompt such as:
 
 ```text
-Create a 16:9 financial report from the supplied quarterly CSV.
-Return an editable PPTX, preserve every value and unit, and check charts, tables,
-overflow, and data fidelity before delivery.
+Create a 16:9 quarterly report from this CSV.
+Return an editable PPTX plus HTML and PDF, preserve every value and unit,
+and inspect every page for layout and data fidelity before delivery.
 ```
 
-The full [installation](#installation), [usage](#usage), and capability-specific verification guidance follows below.
+4. The result is a route-specific PPTX, HTML, and/or PDF artifact with the applicable verification boundary recorded alongside it.
 
-The detailed engineering model, compatibility boundaries, and verification contracts continue below for implementation and maintenance work.
+The full [installation](#installation), [usage](#usage), and capability-specific verification guidance follows below.
 
 ## 🧭 Overview
 
@@ -292,9 +319,9 @@ brief + source data + assets
 | Exact data and existing assets | Manifest, type/order/unit checks, provenance | Native or visual deliverables |
 | Host capability report | Engine selection and rendered-QA gate | PASS / PARTIAL / FAIL with evidence |
 
-## 🎞️ Real examples
+## 🎞️ Contract fixtures
 
-The six checked-in artifacts below are real acceptance fixtures for the repository contract. They are structurally verified by `scripts/verify_examples.py`; a fixture pass is not a claim that every optional renderer or provider was freshly exercised on every host.
+The six checked-in artifacts below are verification fixtures for the repository contract, not the public Showcase demos above. They are structurally verified by `scripts/verify_examples.py`; a fixture pass is not a claim that every optional renderer or provider was freshly exercised on every host.
 
 | Fixture set | Deliverables | Coverage |
 |---|---|---|
