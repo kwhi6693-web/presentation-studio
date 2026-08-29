@@ -17,7 +17,7 @@ call. Never change CWD or inherit a prior shell working directory.
 **Generate-specific execution discipline**:
 
 - The current main agent hand-writes every SVG page; never delegate page generation or run a Python, Node, or shell generator over `svg_output/`.
-- Initial SVG cadence: P01 → first-page gate → uninterrupted remaining pages → final gate. Grouped batches and mid-run checker calls are forbidden.
+- Initial SVG cadence: P01 → first-page gate → remaining pages (one page gate per first-exercised `not-exercised` item) → final gate. Batches and other mid-run checker calls are forbidden.
 - `preset_shape_svg.py` and `shape_boolean_svg.py` may provide only their documented stdout fragment(s) after the main agent chooses the object's role, operands, paint, and z-order; neither helper chooses layout or writes a page.
 - Gate checklists are internal verification, not user-facing output. On success, continue automatically and emit at most one compact status line when useful; on failure, report only the blocking items and required recovery.
 
@@ -32,9 +32,9 @@ request does not explicitly select Quick.
 | Any route that authors or regenerates slide visuals through SVG | `svg_output/` is the complete page-design source: every visible text, image, shape, chart/table fallback, block/inline native-formula preview, and layout element that should appear on the exported slide is present in that page SVG or referenced by it. |
 | Templates, `design_spec.md`, and `spec_lock.md` | Authoring/control inputs. They guide SVG creation but MUST NOT supply visible slide content that is absent from the completed SVG during export. |
 | Semantic SVG markers | Minimal rendering-neutral compiler hints used only after existing Layout/Layer/Placeholder/Native metadata has been considered. Chart/table markers preserve their visible SVG fallback; block and inline formula markers carry exact LaTeX and replace only their registered ordinary SVG preview with editable Office Math during PPTX export. |
-| `svg_final/` | Mandatory derived, self-contained SVG visual preview in the default pipeline. It may be opened directly or inserted into PowerPoint as an SVG picture, but it is not a supported PPTX source and carries no manual Convert-to-Shape compatibility contract. Quick-generate skips it. |
+| `svg_final/` | Optional derived, self-contained SVG visual preview in the default pipeline; release export never reads it. It may be opened directly or inserted into PowerPoint as an SVG picture, but it is not a supported PPTX source and carries no manual Convert-to-Shape compatibility contract. Quick-generate skips it. |
 | SVG-to-PPTX export | The only supported generated-PPTX route reads `svg_output/` and maps its content through the project converter to DrawingML/native objects. It compiles only the selected route's explicit structure contract: `flat` keeps represented content Slide-local, while `structured` may place explicitly scoped content in Master/Layout/Slide parts. It MUST NOT infer structure, upgrade `flat`, or invent new visible page content. |
-| Native PPTX routes and presentation-behavior stages | Remain outside SVG page-design closure. `template-fill-pptx`, `native-enhance-pptx`, animations, transitions, speaker notes, narration, and package relationships are not required to round-trip through SVG. |
+| Edit Native PPTX and presentation-behavior stages | Remain outside SVG page-design closure. `edit-native-pptx` restores unchanged source slides natively; animations, transitions, speaker notes, narration, and package relationships are not required to round-trip through SVG. |
 
 **MUST — page-design closure**: For an SVG-authoring route, inspect the final page SVG to determine what the exported slide looks like. Do not reinterpret “SVG is the page-design language” as “SVG is the complete PPTX package description language.”
 
@@ -119,8 +119,13 @@ final confirmation.
 🚧 **GATE**: Step 1 complete; source content is ready (Markdown file, user-provided text, or requirements described in conversation are all valid).
 
 ```bash
-python3 ${SKILL_DIR}/scripts/project_manager.py init <project_name> --format <format>
+python3 ${SKILL_DIR}/scripts/project_manager.py init <project_name>
 ```
+
+**Hard rule — truthful canvas token**: append
+`--format <registered_format>` only when an explicit user/source fact already
+establishes an exact registered canvas before initialization. Otherwise omit
+the flag; Stage 1 confirms the canvas and `spec_lock.md` records its viewBox.
 
 Project initialization creates `<project_path>/validation/workflow.log` and
 records the initialization milestone. After the project exists, run each
@@ -152,7 +157,7 @@ still determine stage and readiness. The transcript is cold audit evidence:
 never read it during normal generation; open it only when the user explicitly
 asks to review the run.
 
-Format options must be named with concrete dimensions. Default: `ppt169` = `1280x720`, `viewBox="0 0 1280 720"`. Other examples: `ppt43` = `1024x768`, `story` = `1080x1920`, `banner` = `1920x1080`. For the full format list, see `references/canvas-formats.md`.
+Registered formats: [`canvas-formats.md`](../references/canvas-formats.md).
 
 Import source content (choose based on the situation):
 
@@ -171,15 +176,15 @@ For PPTX sources, `import-sources` automatically runs the standard intake enrich
 python3 ${SKILL_DIR}/scripts/pptx_intake.py <project_path>/sources/<source.pptx> -o <project_path>/analysis
 ```
 
-For each PPTX it writes `<stem>.identity.json` (canvas, theme palette/fonts, observed usage) and `<stem>.slide_library.json` (text slots, geometry, native tables, native chart caches, SmartArt nodes/connections), and merges that deck's Strategist-facing digest into the single multi-deck index `analysis/source_profile.json` (`decks[]`, one self-contained entry per source deck, with prefixed artifact pointers). In the main generation path these are source facts and recommendation candidates, not replica constraints; the beautify profile and Fill Native PPTX route decide separately which fields become locked constraints.
+For each PPTX it writes `<stem>.identity.json` (canvas, theme palette/fonts, observed usage) and `<stem>.slide_library.json` (text slots, geometry, native tables, native chart caches, SmartArt nodes/connections), and merges that deck's Strategist-facing digest into the single multi-deck index `analysis/source_profile.json` (`decks[]`, one self-contained entry per source deck, with prefixed artifact pointers). In the main generation path these are source facts and recommendation candidates, not replica constraints; the beautify profile decides separately which fields become locked constraints.
 
-Multi-deck: several PPTX files may be imported into one main-pipeline project — each gets its own `<stem>.*` artifacts and a deck entry in `source_profile.json`. `source_profile.json` stays the single must-read index (one entry for a one-deck project, several for a combined-source project). Stems must be distinct; re-importing the same stem replaces that deck's entry. The beautify profile and Fill Native PPTX route remain single-deck (1:1 to one chosen source deck) and read that deck's `<stem>.*` artifacts.
+Multi-deck: several PPTX files may be imported into one main-pipeline project — each gets its own `<stem>.*` artifacts and a deck entry in `source_profile.json`. `source_profile.json` stays the single must-read index (one entry for a one-deck project, several for a combined-source project). Stems must be distinct; re-importing the same stem replaces that deck's entry. The beautify profile remains single-deck (1:1 to one chosen source deck) and reads that deck's `<stem>.*` artifacts.
 
 **Source ownership boundary**: Use the automatic import mode shown above. Only inputs already under the repository's `projects/` tree move into the target project's `sources/`; every other local path is copied and remains untouched, even if `--move` is supplied. Use `--copy` when a projects-local input must also remain in place. If Step 1 wrote Markdown beside the original sources, pass that source path/directory once. If Step 1 used `-o` to write Markdown elsewhere, pass both the original source path(s)/directory and the Markdown output path(s)/directory. Intermediate artifacts (e.g., `_files/`) are handled automatically.
 
 Direct supported bitmap inputs follow both boundaries: the original is archived under `sources/`, and a collision-safe basename is copied into `images/` for analysis and §VIII planning. SVG/EMF/WMF remain source assets unless they arrive through a converter companion manifest that supplies their display metadata. This does not classify an asset's role; Strategist still decides whether it is used.
 
-**✅ Checkpoint — Confirm project structure created successfully, `sources/` contains all source files, converted materials are ready. Proceed to Step 3.**
+**✅ Checkpoint — Confirm project structure created successfully, `sources/` contains all source files, converted materials are ready. Proceed to Step 3.** `import-sources` exits 0 when any input converts; read the printed `skipped` reasons and treat those inputs as absent sources.
 
 ---
 
@@ -224,7 +229,7 @@ multiple supplied roots remain unselected candidates. `free_design` selects none
 
 **Raw PPTX boundary**: A raw PPTX remains valid source material, but it is not a
 template workspace candidate. Raw PPTX plus new content uses
-[`template-fill-pptx`](./template-fill-pptx.md). To create a reusable workspace,
+[`edit-native-pptx`](./edit-native-pptx.md). To create a reusable workspace,
 run [`create-template`](./create-template.md), then return with the generated
 root. Never add Master/Layout/placeholder structure directly to an existing
 PPTX or SVG project.
@@ -288,8 +293,7 @@ Read ${SKILL_DIR}/templates/charts/chart-vocabulary.md
 Read ${SKILL_DIR}/templates/tables/table-vocabulary.md
 ```
 
-This is a capability map, not a usage checklist: retain zero-use outcomes and
-the Strategist/Executor ownership boundary. Author the three whole solution
+This is a capability map; retain the Strategist/Executor ownership boundary. Author the three whole solution
 intents before mapping any component basis. Freeze every referenced
 mode/style/rendering id from the indexes, then read once only the deduplicated
 union of those exact detail files and finish the three custom behaviors. A novel
@@ -299,13 +303,13 @@ no image rows while retaining recommendation-only rendering candidates. Only an 
 project-local template state loads the template module, and only after Stage 1
 is confirmed; a bare template/style name does not.
 
-> ⚠️ **Mandatory artifact gates**: after final confirmation, author complete `design_spec.md` from `${SKILL_DIR}/templates/design_spec_reference.md`. After Gate 1 and any refinement approval, author `spec_lock.md` from `${SKILL_DIR}/templates/spec_lock_reference.md` plus approved Design Spec/context. Author each new artifact once without placeholders or `scaffold-*` (manual-only). Schema validity does not prove semantic fidelity.
+> ⚠️ **Mandatory artifact gates**: after final confirmation, author `design_spec.md` at the confirmed `design_spec_depth` from `${SKILL_DIR}/templates/design_spec_reference.md`. After Gate 1 and any refinement approval, author `spec_lock.md` from `${SKILL_DIR}/templates/spec_lock_reference.md` plus approved Design Spec/context. Author each new artifact once without placeholders or `scaffold-*` (manual-only). Schema validity does not prove semantic fidelity.
 
 **Artifact ownership**: fact-channel and source/derived artifact boundaries are defined in [`references/artifact-ownership.md`](../references/artifact-ownership.md). This Step uses those ownership rules; it does not redefine them.
 
-**`<project_path>/analysis/` is the project's intermediate-analysis folder: the canonical home for machine-extracted source/asset facts — the PPTX intake bundle (`source_profile.json` index + per-deck `<stem>.identity.json` / `<stem>.slide_library.json`) and `image_analysis.csv`. It holds facts, not design contracts — `design_spec.md` / `spec_lock.md` stay at the project root.** The MUST-read contract covers only the **compact structured data files (`.json` / `.csv`)**; other artifacts that may live under `analysis/` (e.g. a beautify `source_svg_import/` vector reference package) are NOT bulk-read — they are read selectively only when a specific workflow step calls for them. Before the Strategist confirmation stage, Strategist MUST read the auto-extracted fact files already in `analysis/` — currently `source_profile.json` (PPTX intake), when present. This file is the multi-deck index: read it once for the `decks[]` digests (canvas / chart / table / SmartArt entries per source deck), then open a specific deck's `<stem>.identity.json` / `<stem>.slide_library.json` only if you need its full raw facts. Use these entries as **factual source context** (format default + content facts); when several decks are present, synthesize across all of them. The source's **palette / typography / visual identity are a reference, not a constraint**: the main pipeline may inherit them where they fit the content and the confirmed style, or design fresh where they don't — the Strategist's judgment, never an obligation to either keep or discard. (Template-fill preserves the native source design by editing cloned slides directly; beautify defaults to the source identity but still follows the confirmed values; the main pipeline treats source identity as reference only and defaults to fresh design.) (`image_analysis.csv` lands later, at the image-analysis step below, and is the authoritative regenerated image-fact view there — re-derived from the live `images/` folder, not a durable store.)
+**`<project_path>/analysis/` is the project's intermediate-analysis folder: the canonical home for machine-extracted source/asset facts — the PPTX intake bundle (`source_profile.json` index + per-deck `<stem>.identity.json` / `<stem>.slide_library.json`) and `image_analysis.csv`. It holds facts, not design contracts — `design_spec.md` / `spec_lock.md` stay at the project root.** The MUST-read contract covers only the **compact structured data files (`.json` / `.csv`)**; other artifacts that may live under `analysis/` (e.g. a beautify `source_svg_import/` vector reference package) are NOT bulk-read — they are read selectively only when a specific workflow step calls for them. Before the Strategist confirmation stage, Strategist MUST read the auto-extracted fact files already in `analysis/` — currently `source_profile.json` (PPTX intake), when present. This file is the multi-deck index: read it once for the `decks[]` digests (canvas / chart / table / SmartArt entries per source deck), then open a specific deck's `<stem>.identity.json` / `<stem>.slide_library.json` only if you need its full raw facts. Use these entries as **factual source context** (format default + content facts); when several decks are present, synthesize across all of them. The source's **palette / typography / visual identity are a reference, not a constraint**: the main pipeline may inherit them where they fit the content and the confirmed style, or design fresh where they don't — the Strategist's judgment, never an obligation to either keep or discard. (Edit Native PPTX preserves source-native objects through its source-backed round trip; beautify defaults to the source identity but still follows the confirmed values; the main pipeline treats source identity as reference only and defaults to fresh design.) (`image_analysis.csv` lands later, at the image-analysis step below, and is the authoritative regenerated image-fact view there — re-derived from the live `images/` folder, not a durable store.)
 
-**Channel ownership — read each fact once from its owning channel.** In the main pipeline the **content contract is the content-type files in `sources/`** — primarily `<stem>.md`, but also any user-supplied content the import archived there: `.md` / `.markdown` / `.txt` / `.csv` / `.tsv` / `.json` / `.jsonl` / `.yaml` / `.yml` (a `metrics.json` or `data.csv` may carry core content — judge by what the file holds). Text, tables, chart data values, and SmartArt node wording come from these (`ppt_to_md` transcribes native charts as Markdown tables and SmartArt nodes as hierarchical bullets). **Do NOT read pipeline sidecars in `sources/` as content**: `*.conversion_profile.json` (conversion audit) and `*_files/image_manifest.json` (asset index) are process metadata — open them only to audit a conversion or resolve assets, never as slide content. Converted-source originals archived in `sources/` (`.pdf` / `.pptx` / `.docx` / `.xlsx` / `.html` / `.epub` / `.tex` / `.rst` / `.ipynb` / `.typ`, etc.) are read via their converted `<stem>.md`, not scanned directly in the main pipeline. The `analysis/` chart / table / diagram entries are a **structural digest** for outline decisions (which slides carried charts, tables, or SmartArt; chart types / series names; SmartArt layout and hierarchy) — not a second copy of the content values; do NOT also pull chart values or SmartArt wording from `<stem>.slide_library.json` in the main pipeline. The `<stem>.slide_library.json` full structured data is owned by the direct-PPTX workflows: template-fill uses it as the native fill contract while preserving SmartArt unchanged; beautify uses it for native chart / table data and SmartArt relationships while keeping all wording from the Markdown.
+**Channel ownership — read each fact once from its owning channel.** In the main pipeline the **content contract is the content-type files in `sources/`** — primarily `<stem>.md`, but also any user-supplied content the import archived there: `.md` / `.markdown` / `.txt` / `.csv` / `.tsv` / `.json` / `.jsonl` / `.yaml` / `.yml` (a `metrics.json` or `data.csv` may carry core content — judge by what the file holds). Text, tables, chart data values, and SmartArt node wording come from these (`ppt_to_md` transcribes native charts as Markdown tables and SmartArt nodes as hierarchical bullets). **Do NOT read pipeline sidecars in `sources/` as content**: `*.conversion_profile.json` (conversion audit) and `*_files/image_manifest.json` (asset index) are process metadata — open them only to audit a conversion or resolve assets, never as slide content. Converted-source originals archived in `sources/` (`.pdf` / `.pptx` / `.docx` / `.xlsx` / `.html` / `.epub` / `.tex` / `.rst` / `.ipynb` / `.typ`, etc.) are read via their converted `<stem>.md`, not scanned directly in the main pipeline. The `analysis/` chart / table / diagram entries are a **structural digest** for outline decisions (which slides carried charts, tables, or SmartArt; chart types / series names; SmartArt layout and hierarchy) — not a second copy of the content values; do NOT also pull chart values or SmartArt wording from `<stem>.slide_library.json` in the main pipeline. The `<stem>.slide_library.json` full structured data is owned by beautify for native chart / table data and SmartArt relationships while keeping all wording from the Markdown.
 
 **Confirmation orchestration**: field meaning and recommendation logic belong to the active Strategist modules; [`confirm_ui.md`](../scripts/docs/confirm_ui.md) owns the JSON schema, server lifecycle, staged-result contract, port behavior, and equivalent chat fallback.
 
@@ -343,7 +347,7 @@ Stage-2 summary without fabricating UI results. Silence confirms nothing.
 | `confirm_ui/template_options.json` | Candidate schema/language plus supplied exact roots; library entries remain server-owned index data | Stage-1 submission writes user-owned `template_selection.json` with `phase: template`, `status: confirmed` |
 | `confirm_ui/recommendations.stage1.json` | Communication contract, `content_divergence`, and canvas only; no template-derived recommendation | The same submission writes `result.json` with `status: stage1-confirmed` |
 | `confirm_ui/template_handoff.json` | Only through `--complete-template-selection`, after the Stage-1 selection and free-design closure or successful installation | `status: ready`, bound to the current selection hash; prerequisite for Stage 2 |
-| `confirm_ui/recommendations.stage2.json` | `stage: stage2`; complete deck solution plus conditional AI path, generation mode, refine-spec, proactive speaker notes, custom animations, and narration audio | `stage: final`, `status: confirmed` |
+| `confirm_ui/recommendations.stage2.json` | `stage: stage2`; complete deck solution plus conditional AI path, generation mode, refine-spec, design-spec depth, proactive speaker notes, custom animations, and narration audio | `stage: final`, `status: confirmed` |
 
 If the user rejects the current recommendation before confirming it, regenerate by overwriting that same stage file and have the page refresh; do not create revision-suffixed files. This never authorizes one stage file to carry another stage's payload.
 
@@ -598,7 +602,7 @@ Read ${SKILL_DIR}/references/executor-base.md     # REQUIRED: flat/shared execut
 
 **Scheduled lock re-read (Default Generate only)**: when another page follows, re-read `spec_lock.md` once after P05/P10/P15/… per [`executor-base.md`](../references/executor-base.md) §2.1.
 
-**Exact page roster**: render `design_spec.md §IX` one-for-one, in order. Any add/drop/merge/split/reorder requires Spec repair/refinement first.
+**Exact page roster**: render `design_spec.md §IX` one-for-one, in order. Any add/drop/merge/split/reorder requires Spec repair first; a continuous run may repair within the confirmed range per [`executor-base.md`](../references/executor-base.md) §2.1.
 
 **Page content**: §IX is preferred wording and semantic authority. Use it when it works; adapt it when presentation benefits while preserving intent, facts, and explicit literal requirements. Read sources only to verify requested evidence; return incomplete blocks to Step 4 instead of enriching them during execution.
 
@@ -613,16 +617,17 @@ Read the exact execution references named by this deck's retained
 construction block plus the resolved mode/style detail files as one batch:
 ```
 Read ${SKILL_DIR}/references/shared-standards-core.md      # REQUIRED: SVG compatibility + shared aesthetic/leading baseline
-Read ${SKILL_DIR}/references/svg-effects.md                # REQUIRED: §6.1 job diagnostic + effects/construction vocabulary
+Read ${SKILL_DIR}/references/svg-effects.md                # REQUIRED: effects/construction vocabulary (§6.1 Visual Job Router as recall)
 Read ${SKILL_DIR}/references/native-shape-authoring.md     # REQUIRED: native-shape selection and Boolean construction
 Read ${SKILL_DIR}/references/preset-shape-vocabulary.md    # REQUIRED: complete 187-name authoring vocabulary
 Read ${SKILL_DIR}/references/executor-structure.md         # REQUIRED: qualitative relationship and topology grammar
+Read ${SKILL_DIR}/references/topology-assembly.md          # REQUIRED: topology assembly and relative-registration material
 Read ${SKILL_DIR}/references/semantic-svg.md               # REQUIRED: semantic metadata boundary
 Read ${SKILL_DIR}/references/modes/<resolved-id>.md        # one preset id, or each `mode_references` id
 Read ${SKILL_DIR}/references/visual-styles/<resolved-id>.md # one preset id, or each `visual_style_references` id
 ```
 
-Keep the core's shared visual-quality defaults and `svg-effects.md` §6.1 job diagnostic active during page authoring, with its Visual Job Router as recall; they are not passive compatibility reading. Explicit user/template requirements and the locked style override compatible aesthetic defaults, never technical Required / Forbidden boundaries.
+Keep the core's shared visual-quality defaults active during page authoring, with `svg-effects.md` §6.1's Visual Job Router as recall; they are not passive compatibility reading. Explicit user/template requirements and the locked style override compatible aesthetic defaults, never technical Required / Forbidden boundaries.
 
 > Read only the role core, always-on construction references, exact locked detail files, and conditionally triggered modules below. The selection indexes remain planning-only. A preset reads its one locked file. For `custom`, read only the exact bases named by optional `mode_references` / `visual_style_references`: apply one under the corresponding behavior, or synthesize several by their stated contributions. If absent, read no preset file and follow the behavior directly. Do not infer adjacent bases, glob a catalog, or blend unselected identities.
 
@@ -654,7 +659,7 @@ decision nor locks geometry/native readiness.
 ```bash
 python3 ${SKILL_DIR}/scripts/svg_editor/server.py <project_path> --live --daemon
 ```
-- Start when Executor begins; `svg_output/` may be empty. Default: first free port from `5050`; `--port N`: strict bind. Read the actual URL from output or `<project_path>/live_preview/lock.json`.
+- Start when Executor begins; `svg_output/` may be empty. Default: first free port from `6060`; `--port N`: strict bind. Read the actual URL from output or `<project_path>/live_preview/lock.json`.
 - Before the first SVG, report that URL or the launch failure; never claim an unavailable preview.
 - Run it as a long-running side process/session; do not wait for it to exit before generating SVG pages. Do not wait for user confirmation after startup.
 - **Service must keep running** until one of: (a) the user clicks **Exit preview** in the browser, or (b) the user explicitly asks in chat to stop it. Generation continues even if the user closes the editor.
@@ -673,11 +678,11 @@ sidecars, or guessed family paths.
 **Page-context**: use the read-only projector only for the diagnostic/telemetry triggers in Executor §2.1, never as a routine pre-page load.
 
 > ⚠️ **Main-agent only**: SVG generation MUST stay in the current main agent — page design depends on full upstream context. Do NOT delegate to sub-agents.
-> ⚠️ **Generation rhythm**: P01 → first-page gate → uninterrupted remaining pages → final gate. After context invalidation, reload under §2.1 before continuing; do not insert batches or mid-run checker calls.
+> ⚠️ **Generation rhythm**: P01 → first-page gate → remaining pages (one page gate per first-exercised `not-exercised` item) → final gate. After context invalidation, reload under §2.1 before continuing.
 
 **Visual Construction Phase**: generate SVG pages sequentially, one at a time, in one continuous pass → `<project_path>/svg_output/`
 
-Each completed SVG MUST be a standalone, complete representation of that slide's visible design. Template SVGs and locked planning artifacts may guide construction, but export must not reach back to them to add visible objects omitted from `svg_output/`. Speaker notes, animation, narration, transitions, and direct native-PPTX workflows remain separately owned artifacts/capabilities. Native shapes are Executor-local authoring capabilities, not planned resources: follow [`native-shape-authoring.md`](../references/native-shape-authoring.md), read the complete current preset vocabulary before the first page, choose page-fit contours before their authoring forms, keep exact native atoms independent when possible, materialize a Merge Shapes Boolean result only where contour semantics require it, and use necessary freeform last. Diagram relationships follow the same Shape-first gate; do not infer a preset from contour similarity.
+Each completed SVG MUST contain the slide's complete visible design; export never reaches back to templates or planning artifacts for omitted visible objects. A Chart/Table marked `data-pptx-native-authority="json"` is the sole object-local exception: its inline JSON is authoritative and its visible subtree is an approximate derived preview. Notes, animation, narration, transitions, and direct native-PPTX workflows remain separate. Native shapes are Executor-local capabilities: follow [`native-shape-authoring.md`](../references/native-shape-authoring.md), read the full preset vocabulary before page one, prefer independent native atoms, use Merge Shapes only when contour semantics require it, and use freeform last. Diagram relationships follow the same Shape-first gate; never infer a preset from contour similarity.
 
 **Motion-ready image composition**: Only when an explicit user motion
 instruction, the effective Custom Animations outcome in `design_spec.md §I` is
@@ -696,23 +701,32 @@ custom animation. A page-transition-only request requires no extra visible
 layer; deterministic Morph still needs the continuing object as a direct-root
 group on both pages.
 
-`template_reuse_scope: mirror|layout` pages MUST start from the complete `page_layouts` SVG, keep inherited visible objects, and preserve root Master/Layout identity plus stable atoms/slots. Strict preserves that reusable contract; under `layout`, the once-loaded Design Spec's `Template Application` may still authorize carrier text/tspan reflow inside unchanged slot bounds. Adaptive uses the current or new Layout key/name already declared by Strategist. If construction proves that fixed atoms or slot topology/bounds must change, stop and return upstream for Strategist to repair the owning plan and lock, validate and read back the affected fragments, then resume; Executor never mutates `spec_lock.md`. `mirror` changes only visible text values while preserving text/tspan topology and attributes. `style` follows the flat paragraph below without structure metadata.
+`template_reuse_scope: mirror|layout` pages MUST start from the complete `page_layouts` SVG and preserve inherited visuals, root Master/Layout identity, atoms, and slots. Strict keeps that contract; `layout` may apply authorized carrier text/tspan reflow within unchanged slot bounds. Adaptive uses a Strategist-declared Layout. If construction requires fixed-atom or slot topology/bounds changes, return upstream for plan/lock repair and validation; Executor never edits `spec_lock.md`. `mirror` changes only permitted text while preserving ordinary text/tspan topology/attributes. A JSON-first Chart/Table preserves marker id/kind/authority, metadata schema/bounds, and structure; its preview children may regenerate from the same JSON. `style` follows the flat rule below.
 
-`template_reuse_scope: style`, Style-only, free-design, and brand-only pages use `pptx_structure.mode: flat`. A Style-only workspace always derives `template_reuse_scope: style`; Style never supplies prototype mappings. When installed alongside Layout/Deck, Style changes only Direction / method and follows the selected non-Style structure plan. On a flat page, draw the complete page directly: keep backgrounds, repeated chrome, headings, text, images, and decoration as ordinary Slide-local SVG content. Do not plan `pptx_masters` / `pptx_layouts` / `page_pptx_layouts`, do not add root Master/Layout identity, and do not add `data-pptx-layer` or `data-pptx-placeholder` metadata. Group logical content normally with top-level `<g id>` elements. Export materializes one clean project-owned Master plus one Blank Layout, applies the locked theme colors/fonts/title-body defaults, removes stock content placeholders and unused built-in Layouts, and retains only the standard date/footer/slide-number capability hooks. It does not promote or deduplicate page content.
+`template_reuse_scope: style`, Style-only, free-design, and brand-only pages use
+`pptx_structure.mode: flat`. Style supplies no prototype mappings; beside
+Layout/Deck it changes only Direction/method and follows that structure plan.
+Draw the complete flat page as ordinary Slide-local SVG. Omit
+`pptx_masters` / `pptx_layouts` / `page_pptx_layouts`, root Master/Layout
+identity, layers, and placeholders; group logical content with top-level
+`<g id>`. Export creates one project Master plus Blank Layout, applies locked
+theme defaults, removes stock placeholders/Layouts, retains standard
+date/footer/slide-number hooks, and never promotes/deduplicates page content.
 
 Do not duplicate specialized identity with `data-pptx-role`. Add it only to structural page-frame objects whose package, page-number, or animation behavior is not already expressed by `data-pptx-layer`, `data-pptx-placeholder`, or `data-pptx-replace-with`; such an element needs a stable unique `id`. Do not add generic content roles to ordinary titles, body text, cards, KPIs, diagrams, charts, icons, or images. Full contract: [`references/semantic-svg.md`](../references/semantic-svg.md).
 
 **First-page gate (Mandatory)** — after the **first** SVG page, before drawing page 2:
 ```bash
-python3 ${SKILL_DIR}/scripts/svg_quality_checker.py <project_path> --stage first-page --json
+python3 ${SKILL_DIR}/scripts/svg_quality_checker.py <project_path> \
+  --canonical-authoring --stage first-page --json
 ```
-Run the command unfiltered—do not pipe it through `tail`, `head`, `grep`, or another output truncator. Review the complete P01 issue set from that one run before editing. Select any advisory warnings worth addressing, fix all blocking errors and selected warnings in one consolidated edit pass, then perform one verification rerun. Do not rerun merely to reveal the next issue. If verification still fails, treat its complete output as the next batch and repeat the same review → consolidated edit → single verification cycle; never check between individual fixes. If the terminal output itself is truncated, read only the relevant issue arrays from `validation/svg_quality_first_page_report.json`; do not launch another checker run for discovery. After the gate passes, draw P02 through the final page without checker calls.
+Run the command unfiltered (no `tail`/`head`/`grep`). Review the complete P01 issue set from that one run before editing. Select any advisory warnings worth addressing, fix all blocking errors and selected warnings in one consolidated edit pass, then perform one verification rerun. If verification still fails, treat its complete output as the next batch and repeat the same review → consolidated edit → single verification cycle; never check between individual fixes. If the terminal output itself is truncated, read only the relevant issue arrays from `validation/svg_quality_first_page_report.json`; do not launch another checker run for discovery.
 
 **Mandatory — read P01 as a method sample, then emit the classification before editing**: the gate validates how the remaining pages will be authored, not only this page.
 
 | Signal | Reading |
 |---|---|
-| Two or more issues share a category and direction | Method-level bias — resolve it to the authoritative rule before P02; a correction fitted to the observed offset only patches this sample. For text extents that rule is `svg_to_pptx.drawingml.elements.estimate_single_line_text_frame_width(runs)`, with `${SKILL_DIR}/scripts` on `sys.path` and every run key present — `text`, `font_size`, `font_family`, `font_weight`, `letter_spacing` — since omissions under-measure |
+| Two or more issues share a category and direction | Method-level bias — resolve it to the authoritative rule before P02; a correction fitted to the observed offset only patches this sample. For text extents that rule is the shared estimator, exposed as `python3 ${SKILL_DIR}/scripts/text_measure.py measure|wrap|box` — calibrate each role once; measure only lines near a limit (`--stdin` batches) |
 | One isolated issue tied to this page's structure | Page-local — fix and continue |
 | A recurring element appears for the first time (page furniture, caption format, section numbering, accent discipline) | It will be copied to every later page — confirm its semantics now |
 
@@ -722,14 +736,18 @@ Emit one line before the consolidated edit:
 gate-signal: method=<rule resolved, or none> | page-local=<count> | not-exercised=<list>
 ```
 
-`not-exercised` names what P01 could not test — a cover typically omits multi-line text, columns, charts, image captions, and data objects. Carry every resolved rule forward as arithmetic; P02 through the final page run without further tool calls.
+`not-exercised` names what P01 could not test — a cover typically omits multi-line text, columns, charts, image captions, and data objects. Carry every resolved rule forward as arithmetic.
+
+**Mandatory — first-exercise gate**: the first page exercising a listed item runs `python3 ${SKILL_DIR}/scripts/svg_quality_checker.py <project_path> --canonical-authoring --stage page --page <svg>` once (items first exercised together share it), fixes blocking items, then continues. Every other page runs without checker calls.
 
 **Quality Check Gate (Mandatory)** — only after every planned SVG exists, BEFORE annotation handling and speaker notes:
 ```bash
-python3 ${SKILL_DIR}/scripts/svg_quality_checker.py <project_path> --stage final --json
+python3 ${SKILL_DIR}/scripts/svg_quality_checker.py <project_path> \
+  --canonical-authoring --stage final --json
 ```
 - **MUST**: Before this gate, every §IX `Native-ready` entry `<object-key>=yes` already has one matching draw-time marker group and JSON metadata child; `=no` and incidental microvisuals remain ordinary SVG. A legacy bare `yes|no` is readable only when that page has exactly one eligible object; it never derives from §VII.
-- Run the command unfiltered—do not pipe it through `tail`, `head`, `grep`, or another output truncator. One invocation already scans every page and reports the complete issue set.
+- **Authority gate**: JSON-first Chart/Table validates inline schema/bounds; its preview has no freshness authority. SVG-first native-ready markers require a current `data-pptx-fallback-sha256`, stamped after SVG/JSON synchronization. Missing/stale baselines block canonical/native export, not fallback export.
+- Run the command unfiltered (no `tail`/`head`/`grep`). One invocation already scans every page and reports the complete issue set.
 - On failure, review all `blocking` errors and all advisory warnings from that run before editing. Choose which warnings merit work, fix every blocking error and the selected warnings in one consolidated edit pass, then perform one verification rerun. If it still fails, its complete output begins the next batch cycle; never run the checker between individual fixes or use repeated invocations to discover one next issue at a time. If terminal output is truncated, extract only `categories.blocking.issues` and, when needed, `categories.introduced.issues` from the report written by that same run.
 - Every `warning` is advisory and non-blocking: do not return the page for mandatory modification, do not auto-normalize user-authored compatible syntax, and do not require an acknowledgement/disposition line. Recommendation warnings identify the generated-SVG default; fidelity/quality warnings may be reported when material, but the existing input may ship unchanged. If a condition must be corrected before release, the checker must classify it as an `error`, not a `warning`.
 - The same rule applies to structured-template warnings (empty/framing-only Layout, bare Master, duplicate layout keys): they may guide an optional template cleanup, but warnings alone never fail the quality gate. Flat `style`, free-design, and brand-only routes still rely on their existing hard errors for invalid structure metadata or incomplete required locks.
@@ -816,7 +834,7 @@ command and proceed directly to Step 7.2.
 python3 ${SKILL_DIR}/scripts/finalize_svg.py <project_path>
 ```
 
-**Success criterion**: `<project_path>/svg_final/` contains one self-contained preview SVG for every published slide. This mandatory derived preview does not replace `svg_output/` as the native-export source.
+**Success criterion**: `<project_path>/svg_final/` contains one self-contained preview SVG for every published slide. This optional derived preview does not replace `svg_output/` as the native-export source, and its absence never blocks Step 7.3.
 
 #### Step 7.3 — Export the Native PPTX
 
@@ -826,6 +844,11 @@ Choose exactly one notes mode:
 |---|---|
 | Speaker Notes `enabled` | `python3 ${SKILL_DIR}/scripts/svg_to_pptx.py <project_path>` |
 | Speaker Notes `disabled` | `python3 ${SKILL_DIR}/scripts/svg_to_pptx.py <project_path> --no-notes` |
+
+Append `--native-charts-and-tables` only for an explicit editable PowerPoint
+Chart/Table delivery decision. Templates, markers, semantic tables, and imported
+charts never activate it. Without the flag, Chart/Table uses its SVG fallback;
+formula native behavior remains intrinsic.
 
 For deck-wide motion settings, append the resolved flags from
 [`animations.md`](../references/animations.md). When the conditional custom

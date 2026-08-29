@@ -23,7 +23,13 @@ from pptx_shapes import (
     load_shape_type_values,
     validate_ooxml_xfrm,
 )
-from pptx_effects import EFFECT_REASON_ATTR, EFFECT_STATUS_ATTR
+from pptx_effects import (
+    EFFECT_REASON_ATTR,
+    EFFECT_STATUS_ATTR,
+    NATIVE_EFFECT_ATTR,
+    NATIVE_EFFECT_SHA256_ATTR,
+    preserved_native_effect_xml,
+)
 from hyperlink_contract import svg_hyperlink_href
 from pptx_to_svg.preset_authoring import AUTHORING_ATTR, AUTHORING_VALUE
 from resource_paths import (
@@ -91,16 +97,21 @@ from .paths import (
 )
 
 
-def _resolve_external_image(svg_dir: Path, href: str) -> Path:
+def _resolve_external_image(
+    svg_dir: Path,
+    href: str,
+    resource_root: Path | None = None,
+) -> Path:
     """Resolve a non-data-URI image href to a file on disk.
 
-    Search order: next to the SVG (``svg_output/``), the project root, the
-    project's ``images/`` (the single runtime image pool — template-bundled
-    bitmaps plus AI / web / user images all live here), then ``templates/``
-    (legacy flat-copied template assets). Raises ``FileNotFoundError`` if none
-    of these exist.
+    The href is interpreted exactly relative to the owning SVG and must remain
+    inside the project. No root, ``images/``, or template-path guessing occurs.
     """
-    candidate = resolve_external_image_reference(svg_dir, href)
+    candidate = resolve_external_image_reference(
+        svg_dir,
+        href,
+        project_root=resource_root,
+    )
     if candidate is not None:
         return candidate
     raise FileNotFoundError(f'External image not found: {href}')
@@ -356,6 +367,7 @@ def _project_image_href(elem: ET.Element) -> str:
 def load_project_image_source(
     elem: ET.Element,
     svg_dir: Path | None,
+    resource_root: Path | None = None,
 ) -> ProjectImageSource:
     """Load one exact SVG image source or raise a contract error."""
     if elem.tag != f'{{{SVG_NS}}}image':
@@ -374,7 +386,7 @@ def load_project_image_source(
     if svg_dir is None:
         raise ValueError('external image requires an SVG directory context')
     try:
-        img_path = _resolve_external_image(svg_dir, href)
+        img_path = _resolve_external_image(svg_dir, href, resource_root)
     except FileNotFoundError as exc:
         raise ValueError(str(exc)) from exc
     img_format = _normalize_project_image_format(img_path.suffix)
@@ -399,6 +411,7 @@ def project_image_errors(
     svg_dir: Path | None,
     *,
     allow_template_placeholders: bool = False,
+    resource_root: Path | None = None,
 ) -> list[str]:
     """Return source and frame errors for exact SVG image elements."""
     errors: list[str] = []
@@ -443,7 +456,7 @@ def project_image_errors(
         ):
             continue
         try:
-            load_project_image_source(elem, svg_dir)
+            load_project_image_source(elem, svg_dir, resource_root)
         except ValueError as exc:
             errors.append(f'{label} invalid image source: {exc}')
     return sorted(errors)
@@ -457,6 +470,7 @@ def _wrap_shape(
     effect_xml: str = '', extra_xml: str = '',
     rot: int = 0,
     xfrm_attr: str = '',
+    placeholder_xml: str = '',
 ) -> str:
     """Wrap DrawingML content into a <p:sp> shape element."""
     rot_attr = f' rot="{rot}"' if rot else ''
@@ -464,7 +478,7 @@ def _wrap_shape(
     return f'''<p:sp>
 <p:nvSpPr>
 <p:cNvPr id="{shape_id}" name="{_xml_escape(name)}"/>
-<p:cNvSpPr/><p:nvPr/>
+<p:cNvSpPr/><p:nvPr>{placeholder_xml}</p:nvPr>
 </p:nvSpPr>
 <p:spPr>
 <a:xfrm{xfrm_attrs}><a:off x="{off_x}" y="{off_y}"/><a:ext cx="{ext_cx}" cy="{ext_cy}"/></a:xfrm>
@@ -528,6 +542,8 @@ def _wrap_geometry_object(
     xfrm_attr: str = '',
 ) -> str:
     """Wrap a semantic leaf as a shape or connector without guessing."""
+    if not effect_xml:
+        effect_xml = _element_effect_xml(elem, ctx)
     name = elem.get('data-pptx-shape-name') or name
     shape_style_xml = _decode_shape_style(elem)
     object_kind = elem.get('data-pptx-object')
@@ -545,6 +561,7 @@ def _wrap_geometry_object(
             effect_xml,
             extra_xml=shape_style_xml,
             xfrm_attr=xfrm_attr,
+            placeholder_xml=_imported_placeholder_xml(elem),
         )
 
     prst = elem.get('data-pptx-prst')
@@ -569,6 +586,56 @@ def _wrap_geometry_object(
         connection_xml=_connector_connection_xml(elem, ctx),
         extra_xml=shape_style_xml,
     )
+
+
+def _imported_placeholder_xml(elem: ET.Element) -> str:
+    """Restore an imported slide placeholder marker when its identity is exact."""
+    placeholder_type = elem.get('data-ph-type')
+    placeholder_index = elem.get('data-pptx-placeholder-index')
+    if not placeholder_type or placeholder_index is None:
+        return ''
+    if not re.fullmatch(r'[A-Za-z][A-Za-z0-9]*', placeholder_type):
+        raise ValueError(
+            f'Invalid imported placeholder type: {placeholder_type!r}'
+        )
+    if not placeholder_index.isdigit() or int(placeholder_index) > 0xFFFFFFFF:
+        raise ValueError(
+            f'Invalid imported placeholder index: {placeholder_index!r}'
+        )
+    attrs = {
+        'type': placeholder_type,
+        'idx': placeholder_index,
+    }
+    placeholder_size = elem.get('data-pptx-placeholder-size')
+    if placeholder_size is not None:
+        if placeholder_size not in {'full', 'half', 'quarter'}:
+            raise ValueError(
+                f'Invalid imported placeholder size: {placeholder_size!r}'
+            )
+        attrs['sz'] = placeholder_size
+    orientation = elem.get('data-pptx-placeholder-orientation')
+    if orientation is not None:
+        if orientation not in {'horz', 'vert'}:
+            raise ValueError(
+                f'Invalid imported placeholder orientation: {orientation!r}'
+            )
+        attrs['orient'] = orientation
+    serialized = ' '.join(
+        f'{name}="{_xml_escape(value)}"'
+        for name, value in attrs.items()
+    )
+    return f'<p:ph {serialized}/>'
+
+
+def _element_effect_xml(elem: ET.Element, ctx: ConvertContext) -> str:
+    """Honor an authored SVG filter before the imported native fallback."""
+    filt_id = get_effective_filter_id(elem, ctx)
+    if filt_id and filt_id in ctx.defs:
+        return build_effect_xml(
+            ctx.defs[filt_id],
+            get_element_opacity(elem, ctx),
+        )
+    return preserved_native_effect_xml(elem) or ''
 
 
 def _decode_shape_style(elem: ET.Element) -> str:
@@ -2568,7 +2635,11 @@ def _build_text_fill_xml(
             )
         if paint_tag == 'pattern':
             mode, image = resolve_project_text_image_fill(paint)
-            source = load_project_image_source(image, ctx.svg_dir)
+            source = load_project_image_source(
+                image,
+                ctx.svg_dir,
+                ctx.resource_root,
+            )
             r_id = _register_image_media(
                 ctx,
                 source.img_format,
@@ -4533,7 +4604,7 @@ def convert_image(elem: ET.Element, ctx: ConvertContext) -> ShapeResult | None:
     to DrawingML picture geometry (prstGeom or custGeom) so the image is
     natively clipped in PowerPoint.
     """
-    source = load_project_image_source(elem, ctx.svg_dir)
+    source = load_project_image_source(elem, ctx.svg_dir, ctx.resource_root)
 
     # Raw coordinates (pre-context-transform) for clip path calculations
     raw_x = svg_length_x(elem.get('x'), ctx)
@@ -4605,13 +4676,7 @@ def convert_image(elem: ET.Element, ctx: ConvertContext) -> ShapeResult | None:
 
     # Resolve clip-path → DrawingML geometry
     clip_geom = _resolve_clip_geometry(elem, ctx, raw_x, raw_y, raw_w, raw_h)
-    effect_xml = ''
-    filter_id = get_effective_filter_id(elem, ctx)
-    if filter_id and filter_id in ctx.defs:
-        effect_xml = build_effect_xml(
-            ctx.defs[filter_id],
-            get_element_opacity(elem, ctx),
-        )
+    effect_xml = _element_effect_xml(elem, ctx)
 
     # Resolve preserveAspectRatio="<align> slice" as DrawingML crop metadata.
     # Image optimization only downscales the full source image; it never crops
@@ -4794,6 +4859,8 @@ _NESTED_CROP_OUTER_ATTRIBUTES = frozenset({
     'data-pptx-editable',
     EFFECT_REASON_ATTR,
     EFFECT_STATUS_ATTR,
+    NATIVE_EFFECT_ATTR,
+    NATIVE_EFFECT_SHA256_ATTR,
     'data-pptx-frame',
     'data-pptx-layer',
     'data-pptx-object',
@@ -5164,7 +5231,11 @@ def convert_nested_svg(elem: ET.Element, ctx: ConvertContext) -> ShapeResult:
     """
     crop = parse_project_nested_svg_crop(elem)
     image_elem = crop.image
-    source = load_project_image_source(image_elem, ctx.svg_dir)
+    source = load_project_image_source(
+        image_elem,
+        ctx.svg_dir,
+        ctx.resource_root,
+    )
 
     svg_x = crop.x
     svg_y = crop.y
@@ -5241,13 +5312,7 @@ def convert_nested_svg(elem: ET.Element, ctx: ConvertContext) -> ShapeResult:
             svg_w,
             svg_h,
         )
-    effect_xml = ''
-    filter_id = get_effective_filter_id(elem, ctx)
-    if filter_id and filter_id in ctx.defs:
-        effect_xml = build_effect_xml(
-            ctx.defs[filter_id],
-            get_element_opacity(elem, ctx),
-        )
+    effect_xml = _element_effect_xml(elem, ctx)
     blip_xml = _build_image_blip_xml(
         r_id,
         get_element_opacity(image_elem, ctx),

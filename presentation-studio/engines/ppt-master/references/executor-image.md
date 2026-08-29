@@ -24,7 +24,7 @@ Handle images by status; enum and lifecycle: [`svg-image-embedding.md`](svg-imag
 
 **Reference syntax**: see [`svg-image-embedding.md`](svg-image-embedding.md).
 
-**Template-bundled images**: [`apply-template-workspace.md`](../workflows/stages/apply-template-workspace.md) copies them into project `images/`. Outside `mirror`, reference `../images/<name>` and never copy a template SVG's bare sibling href: the rendered page lives in `svg_output/`. `mirror` ([`executor-structured.md`](./executor-structured.md) §1.1) keeps hrefs verbatim; export resolves them against `images/`.
+**Template-bundled images**: [`apply-template-workspace.md`](../workflows/stages/apply-template-workspace.md) copies them into project `images/`. Every page, including `mirror`, must rebase the same bytes to exact `../images/<name>`; this transport rewrite is not a visual edit. Never retain a bare or source-template href: preview, validation, and export resolve the written path exactly.
 
 **Default — active image integration (may override when plain placement is
 stronger)**: Treat loaded [`image-layout-patterns.md`](./image-layout-patterns.md)
@@ -77,7 +77,7 @@ to variety.
 
 **Placeholder**: Dashed border `<rect stroke-dasharray="8,4" .../>` + description text
 
-**Crop policy**: read the §VIII row and matching lock projection. On every slide that uses a `crop=no-crop` source (or a legacy trailing `| no-crop`), retain one visible complete instance using one of the nine legal anchors with `meet`, never `none`, and no `clip-path`, `mask`, clipping overflow, or nested `<svg>` crop viewport. An auxiliary same-slide detail or lens may crop the same source only while that complete instance remains visible. `crop=adaptive` permits but never requires cropping; choose `meet` or focal-safe `slice` from purpose, ratio, focus, and container. A missing or conflicting `source` / `pattern` / `crop` projection returns upstream instead of being inferred during execution; the accurately projected `pattern` remains a preferred expression that may be adopted, adapted, or declined without rewriting the lock.
+**Crop policy**: read the §VIII row and its lock projection (`source`, `crop`). On every slide that uses a `crop=no-crop` source (or a legacy trailing `| no-crop`), retain one visible complete instance using one of the nine legal anchors with `meet`, never `none`, and no `clip-path`, `mask`, clipping overflow, or nested `<svg>` crop viewport. An auxiliary same-slide detail or lens may crop the same source only while that complete instance remains visible. `crop=adaptive` permits but never requires cropping; choose `meet` or focal-safe `slice` from purpose, ratio, focus, and container. A missing or conflicting `source` / `crop` projection returns upstream instead of being inferred during execution; the §VIII `Layout pattern` remains a preferred expression that may be adopted, adapted, or declined.
 
 **Hard rule — same-source addressable crops, only when adopted**: A layout
 suggestion, including pattern `#M1-11`, never activates this transport. Pattern

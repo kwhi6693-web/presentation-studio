@@ -149,28 +149,37 @@ owned by the preserve/mirror round-trip contract.
 - `chartX`, `chartStar`, or `chartPlus` as a substitute for native charts;
 - logo, icon glyph, illustration, brand contour, or data-chart marks.
 
-### 2.1 Compound page geometry
+### 2.1 Topology assembly and compound page geometry
 
-**Trigger**: after the page or prototype's communication / slot job, composition
-anchors, and any applicable topology under
+**Trigger**: after the page or prototype's communication / slot job,
+composition anchors, and any applicable topology under
 [`executor-structure.md`](./executor-structure.md) are resolved, but before
-writing coordinates, resolve the page-scale geometry move that best carries its
-background field, content zoning, focal hierarchy, or reading path. Apply §1's
-exact-fit decision and compare the useful lenses below. Before repeating stacked
-rectangles / rounded cards or uniform equal columns, compare a page-field,
-outline, nesting, or continuity construction and the relevant contour family's
-exact members. Readability of the first workable arrangement does not close this
-gate.
-This applies whether the per-page Structure result is `no` or `yes`; it never
-creates a decoration requirement.
+writing coordinates, run this gate at every active granularity. For
+`Structure=yes`, assemble each resolved topology without changing it, using
+[`topology-assembly.md`](./topology-assembly.md) as assembly and relative
+registration material; for every page, resolve the page-scale geometry move
+carrying its background field,
+content zoning, focal hierarchy, or reading path. Apply §1's exact-fit decision
+and compare the useful lenses below. Before repeating stacked rectangles /
+rounded cards or uniform equal columns, compare a page-field, outline, nesting,
+or continuity construction and the relevant contour family's exact members.
+Readability of the first workable arrangement does not close this gate. This
+never creates a decoration requirement.
 
 | Pass | Action | Result |
 |---|---|---|
-| Page job | Name the page-scale geometry move and its jobs: surface, boundary, focal mark, shared region, counterweight, or any source-backed direction / reveal. | One composition direction and a small set of functional zones; no shape names yet. |
-| Decompose | Separate visible content from geometric atoms. Identify which atoms need independent movement, paint, or reuse and which contour must become one object. | Editable siblings plus any explicit Boolean operand set. |
-| Select | Choose the contour family, then its exact member from the job, full native vocabulary, and edge / corner / opening behavior; retain the reader effect when the result is generic or undrawn. | Page-fit native atoms without syntax bias. |
-| Compose | Establish page frame, scale, z-order, and negative space with independent atoms. Keep text, images, icons, data marks, and non-merged accents outside Boolean operands. | One page-level geometry system, not a collection of unrelated decorations. |
+| Topology / page job | Retain the resolved topology and state its relationship duties; name the page-scale geometry move and its jobs: surface, boundary, focal mark, shared region, counterweight, or any source-backed direction / reveal. | Required relationship duties plus one composition direction and a small set of functional zones; no shape names yet. |
+| Decompose | Partition the resolved topology and visible content. Identify components needing independent editing, movement, paint, animation, or reuse; separately identify contour / region semantics that require one object or independently retained Boolean result paths. | Editable siblings plus any explicit Boolean operand set. |
+| Select | For each required component, choose the contour family, then its exact member from the job, full native vocabulary, and edge / corner / opening behavior; retain the reader effect when the result is generic or undrawn. | Page-fit native atoms without syntax bias. |
+| Compose | Assemble the resolved topology from its independent atoms, then establish page frame, scale, z-order, and negative space. Keep text, images, icons, data marks, and non-merged accents outside Boolean operands. | Relationship-faithful assembly inside one page-level geometry system, not unrelated decorations. |
 | Materialize | Run the preset helper for each adopted preset. Run the Boolean helper only for contours that require Merge Shapes semantics, then replace those operands with its stdout paths. | Valid authoring SVG ready for native export. |
+
+**Reference — not a constraint**: At topology scale, compare independent pieces,
+one body with dividers, overlapping siblings, fitted joints, intentional gaps,
+and independently retained `fragment` regions. These are common assembly
+strategies rather than an exhaustive set. Choose from component independence
+and contour / region semantics; never map a topology name to a shape list or
+infer equal size or spacing.
 
 **Composition lenses — not a checklist**:
 
@@ -226,7 +235,12 @@ siblings whenever one-object contour semantics are unnecessary.
 ## 3. Fragment Generation
 
 `render` emits one selected object. `render-batch` atomically emits multiple
-already-selected objects for one current page or template construction.
+already-selected objects for one current page or template construction. Its
+`--input` is a JSON array of objects with the same fields as the `render`
+flags: required `preset`, `id`, and `frame` (`[x, y, width, height]`);
+optional `object_kind`, `name`, `fill`, `fill_opacity`, `stroke`,
+`stroke_width`, `stroke_opacity`, `stroke_linecap`, `stroke_linejoin`,
+`filter_id`, and `adjustments` (an object such as `{"adj": "val 42000"}`).
 Generated project pages choose each object's solid paint from the current page
 context, using `spec_lock.md` roles as reusable anchors rather than an exhaustive
 palette; `create-template` takes colors from the confirmed brief and template
@@ -264,7 +278,7 @@ preset can never be authored as an ordinary `shape`.
 
 **Hard rule — stdout-only exception**: the helper prints one or more
 deterministic `<g>` fragments. Read that output and insert it with the normal
-page/template `apply_patch` edit. A batch JSON array is transient input for
+page edit. A batch JSON array is transient input for
 already-selected objects in the current construction, never a project resource
 or multi-page plan. Do not redirect output into `svg_output/`, loop over
 pages/templates, or let the helper choose layout. The main Agent still authors
@@ -385,7 +399,7 @@ from the primary, and `fragment` returns each atomic filled region. The PPTX
 stores the materialized freeform geometry, not replayable operation history.
 
 **Hard rule — stdout-only replacement**: The helper never writes the source
-page. In one normal `apply_patch` edit, remove every selected operand and insert
+page. In one normal page edit, remove every selected operand and insert
 every returned path in root coordinate space at the primary operand's z-order,
 using the placement contract above. Fragment paths remain separate shapes; an
 ordinary semantic group does not turn them into one structural atom.
@@ -432,15 +446,17 @@ reads correctly at slide scale.
 
 ### 7.3 Fragment as a modelling tool, not just a boolean
 
-`fragment` (§6) is the fastest way to build layered diagrams from one silhouette:
-lay evenly distributed bars across a triangle and fragment it into pyramid tiers;
-cross a circle with two bars for a quadrant wheel; slice an annulus radially for
-ring segments. Every piece inherits the parent contour, so the assembly stays
-perfectly registered — impossible to achieve by drawing the tiers separately.
+`fragment` (§6) can build registered layered diagrams from one silhouette:
+cross a triangle with topology-derived bars for pyramid tiers; cross a circle
+with two topology-derived bars for a quadrant wheel; slice an annulus radially
+for ring segments. These are construction examples rather than topology
+defaults or an exhaustive set. Every retained piece inherits the parent contour,
+so the assembly stays registered without independently redrawing its parts.
 
-Distribute the cutting bars with a constant step before fragmenting; uneven tiers
-read as a mistake rather than a hierarchy. Paint the resulting pieces with one
-gradient family per §7.1 so the stack reads as a single solid.
+Derive cutter count, position, and piece size from the resolved topology. Use a
+constant step and one §7.1 gradient family only when equal tier / segment weight
+and one-solid reading are semantic; otherwise preserve the required differences
+in geometry and paint.
 
 ### 7.4 Soft edges without the soft-edge effect
 

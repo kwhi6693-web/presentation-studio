@@ -33,7 +33,7 @@ Use Create Template Step 1 for source ingestion and internal creation-strategy f
 - Colors, font families, branded weight choices, final absolute sizes, logos, voice, and icon style remain source context only. Do not copy them into the layout identity because a layout has no identity segment.
 - A source scenario may inform the content shapes or delivery conditions the geometry can support. Do not turn that fit into an application contract. If the reusable artifact prescribes the objective, outcome, narrative sequence, boilerplate, or content policy, return to Create Template dispatch and select Create Deck.
 - When the source is branded, state in plain language that Create Layout will omit the identity. The AI therefore derives an authored internal strategy. If the user wants the identity retained with the structure, return to Create Template dispatch and select Create Deck before the shared confirmation marker is emitted.
-- Internally, `standard` and `fidelity` author a new Master/Layout/slot system. `mirror` may be derived only when the complete current source contract is already brand-neutral and application-neutral; it preserves validated structure and visual facts in a new workspace without modifying the source. Never ask the user to choose among these labels.
+- Internally, `standard` and `fidelity` inspect the complete source inventory and author a new Master/Layout/slot system. `mirror` may be derived only when the source-Slide-reachable contract is complete, brand-neutral, and application-neutral; it preserves that reachable structure and its visual facts in a new workspace without modifying the source. Never ask the user to choose among these labels.
 
 Direct conversation text, pasted requirements, converted documents/websites, images, and supplied assets may define or illustrate reusable structure. In a mixed bundle, combine those channels without treating identity-only evidence as layout ownership. Exact user-authored instructions remain decisions whether they arrive in chat or a user-written brief file; vague prose remains suggested interpretation until the shared confirmation gate.
 
@@ -113,10 +113,15 @@ In addition to Create Template Steps 5–6, verify:
 - Neutral prototype paint is not described as a locked brand identity.
 - `replication_mode: mirror` is rejected for any source that retains organization-specific identity or reusable application rules; use authored Layout mode or Create Deck instead.
 
-For library scope, Create Template validates and registers with:
+For library scope, Create Template Step 5 validates the directory/index identity with:
 
 ```bash
 python3 skills/ppt-master/scripts/register_template.py <layout_id> --kind layout --dry-run
+```
+
+After that gate and any triggered Create Template Step 6 pass, Step 7 registers with:
+
+```bash
 python3 skills/ppt-master/scripts/register_template.py <layout_id> --kind layout
 ```
 
