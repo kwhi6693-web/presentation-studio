@@ -25,7 +25,7 @@
     <rect x="40" y="140" width="74" height="5" fill="#c08c4c"/>
     <text x="40" y="188" fill="#243b53" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="600">AI Agent → Editable PPTX · HTML · PDF</text>
     <text x="40" y="226" fill="#627d98" font-family="Arial, Helvetica, sans-serif" font-size="18">Prompt + structured data → output → quality gate</text>
-    <text x="40" y="298" fill="#102a43" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" letter-spacing="1.5">EDITABLE OBJECTS  ·  MULTI-FORMAT OUTPUT  ·  ROUTE-AWARE QA</text>
+    <text x="40" y="298" fill="#102a43" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" letter-spacing="1.2">EDITABLE PPTX  ·  MULTI-FORMAT  ·  QA-GATED OUTPUT</text>
   </g>
 
   <g filter="url(#shadow)">
