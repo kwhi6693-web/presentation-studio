@@ -1,0 +1,9 @@
+segment,quarter,revenue_usd_m,gross_profit_usd_m,gross_margin
+Core,Q1,1.20,0.42,35.0%
+Core,Q2,1.34,0.51,38.1%
+Core,Q3,1.47,0.58,39.5%
+Core,Q4,1.62,0.66,40.7%
+Expansion,Q1,0.68,0.31,45.6%
+Expansion,Q2,0.76,0.35,46.1%
+Expansion,Q3,0.83,0.40,48.2%
+Expansion,Q4,0.91,0.44,48.4%

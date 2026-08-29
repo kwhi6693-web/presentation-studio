@@ -1,0 +1,23 @@
+{
+  "components": [
+    "Intake",
+    "Task Runtime Context",
+    "Experience Memory",
+    "Capability Registry",
+    "Mode Orchestrator",
+    "Execution Loop",
+    "Quality Gate",
+    "Evidence / DoD"
+  ],
+  "flows": [
+    "Goal → Context → Route → Execute → Verify",
+    "Failure → Diagnose → Repair → Retest → Fallback",
+    "Checkpoint → Reconcile → Resume"
+  ],
+  "security_boundary": [
+    "authorized repository scope",
+    "no silent production publish",
+    "no paid action",
+    "user OAuth boundary"
+  ]
+}

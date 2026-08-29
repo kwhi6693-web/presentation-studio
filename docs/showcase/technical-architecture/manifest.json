@@ -1,0 +1,26 @@
+{
+  "id": "technical-architecture",
+  "title": "Technical Architecture",
+  "route": [
+    "ppt-master",
+    "technical-deck"
+  ],
+  "format": "PPTX + HTML + PDF",
+  "pdf": "technical-architecture.pdf",
+  "pages": 9,
+  "aspect_ratio": "16:9",
+  "diagrams": 4,
+  "editability": {
+    "pptx": "full native editability for text, connectors, shapes, and diagrams",
+    "html": "browsable and printable; not a native PowerPoint object model"
+  },
+  "source": "architecture.json",
+  "preview_pages": [
+    1,
+    2,
+    3,
+    7,
+    9
+  ],
+  "quality_status": "PASS: native shape/connector package check + 9-page browser render/inspection; desktop Office renderer unavailable"
+}

@@ -1,0 +1,30 @@
+{
+  "id": "financial-data-report",
+  "title": "Financial / Data Report",
+  "route": [
+    "ppt-master",
+    "native-data-deck"
+  ],
+  "format": "PPTX + HTML + PDF",
+  "pdf": "financial-data-report.pdf",
+  "pages": 9,
+  "aspect_ratio": "16:9",
+  "editability": {
+    "pptx": "full native editability for text, shapes, native chart, and native table",
+    "html": "browsable and printable; not a native PowerPoint object model"
+  },
+  "data_status": "exact_data_manifested",
+  "data_source": "financial-data.csv",
+  "exact_data_manifest": "exact-data-manifest.json",
+  "binding_manifest": "binding-manifest.json",
+  "engine_payload": "engine-payload.json",
+  "observed_contract": "observed-contract.json",
+  "preview_pages": [
+    1,
+    3,
+    4,
+    7,
+    9
+  ],
+  "quality_status": "PASS: exact binding triplet + native chart/table package readback + 9-page browser render/inspection; desktop Office renderer unavailable"
+}

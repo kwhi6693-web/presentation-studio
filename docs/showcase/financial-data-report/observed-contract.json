@@ -1,0 +1,72 @@
+{
+  "source": "financial-data.csv",
+  "source_form": "csv",
+  "provenance": "public illustrative demo dataset created for this repository showcase",
+  "fields": [
+    {
+      "name": "segment",
+      "type": "string",
+      "concrete_types": ["str", "str", "str", "str", "str", "str", "str", "str"],
+      "values": ["Core", "Core", "Core", "Core", "Expansion", "Expansion", "Expansion", "Expansion"],
+      "missing_positions": [],
+      "unit": "",
+      "period": "FY illustrative",
+      "label": "Segment"
+    },
+    {
+      "name": "quarter",
+      "type": "string",
+      "concrete_types": ["str", "str", "str", "str", "str", "str", "str", "str"],
+      "values": ["Q1", "Q2", "Q3", "Q4", "Q1", "Q2", "Q3", "Q4"],
+      "missing_positions": [],
+      "unit": "",
+      "period": "FY illustrative",
+      "label": "Quarter"
+    },
+    {
+      "name": "revenue_usd_m",
+      "type": "number",
+      "concrete_types": ["float", "float", "float", "float", "float", "float", "float", "float"],
+      "values": [1.2, 1.34, 1.47, 1.62, 0.68, 0.76, 0.83, 0.91],
+      "missing_positions": [],
+      "unit": "USD millions",
+      "period": "FY illustrative",
+      "label": "Revenue (USD m)"
+    },
+    {
+      "name": "gross_profit_usd_m",
+      "type": "number",
+      "concrete_types": ["float", "float", "float", "float", "float", "float", "float", "float"],
+      "values": [0.42, 0.51, 0.58, 0.66, 0.31, 0.35, 0.4, 0.44],
+      "missing_positions": [],
+      "unit": "USD millions",
+      "period": "FY illustrative",
+      "label": "Gross Profit (USD m)"
+    },
+    {
+      "name": "gross_margin",
+      "type": "string",
+      "concrete_types": ["str", "str", "str", "str", "str", "str", "str", "str"],
+      "values": ["35.0%", "38.1%", "39.5%", "40.7%", "45.6%", "46.1%", "48.2%", "48.4%"],
+      "missing_positions": [],
+      "unit": "percent",
+      "period": "FY illustrative",
+      "label": "Gross Margin"
+    }
+  ],
+  "transformations": [
+    {
+      "name": "display_margin",
+      "documentation": "gross_profit_usd_m / revenue_usd_m, displayed as a labeled derived ratio; source fields remain unchanged",
+      "approved": true,
+      "parameters": {
+        "denominator": "revenue_usd_m",
+        "format": "0.0%",
+        "numerator": "gross_profit_usd_m"
+      }
+    }
+  ],
+  "findings": [],
+  "record_ids": ["core-q1", "core-q2", "core-q3", "core-q4", "expansion-q1", "expansion-q2", "expansion-q3", "expansion-q4"],
+  "duplicate_record_ids": []
+}

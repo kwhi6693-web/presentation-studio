@@ -1,0 +1,26 @@
+{
+  "id": "ai-industry-report",
+  "title": "AI Industry Report",
+  "route": [
+    "ppt-master",
+    "native-editable-deck"
+  ],
+  "format": "PPTX + HTML + PDF",
+  "pdf": "ai-industry-report.pdf",
+  "pages": 9,
+  "aspect_ratio": "16:9",
+  "editability": {
+    "pptx": "full native editability for text, shapes, and charts",
+    "html": "browsable and printable; not a native PowerPoint object model"
+  },
+  "data_status": "illustrative_demo_data",
+  "data_source": "illustrative-data.json",
+  "preview_pages": [
+    1,
+    3,
+    5,
+    7,
+    9
+  ],
+  "quality_status": "PASS: native package check + 9-page browser render/inspection; desktop Office renderer unavailable"
+}

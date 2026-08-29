@@ -1,0 +1,36 @@
+{
+  "id": "swiss-editorial-deck",
+  "title": "Swiss Editorial Deck",
+  "route": [
+    "guizang",
+    "ppt-master",
+    "frontend-slides"
+  ],
+  "format": "PPTX + HTML + PDF",
+  "pdf": "swiss-editorial-deck.pdf",
+  "pages": 9,
+  "aspect_ratio": "16:9",
+  "registered_layouts": [
+    "S01",
+    "S03",
+    "S09",
+    "S04",
+    "S11",
+    "S15",
+    "S08",
+    "S18",
+    "S10"
+  ],
+  "editability": {
+    "pptx": "partial native editability for text and shapes; the Guizang visual system is not flattened into a screenshot",
+    "html": "browsable and printable; not a native PowerPoint object model"
+  },
+  "preview_pages": [
+    1,
+    2,
+    4,
+    7,
+    9
+  ],
+  "quality_status": "PASS: Guizang Swiss static check + 9-page browser render/inspection + native package check; desktop Office renderer unavailable"
+}
