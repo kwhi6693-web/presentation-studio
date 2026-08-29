@@ -98,7 +98,15 @@ def build_repository_package(
     checksum_path: Path = DEFAULT_CHECKSUM_PATH,
 ) -> str:
     digest = build_archive(skill_root, archive_path)
-    checksum_path.write_text(f"{digest}  dist/presentation-studio.zip\n", encoding="ascii")
+    checksum_path = checksum_path.resolve()
+    archive_path = archive_path.resolve()
+    checksum_path.parent.mkdir(parents=True, exist_ok=True)
+    checksum_name = (
+        "dist/presentation-studio.zip"
+        if checksum_path == DEFAULT_CHECKSUM_PATH.resolve()
+        else archive_path.name
+    )
+    checksum_path.write_text(f"{digest}  {checksum_name}\n", encoding="ascii")
     return digest
 
 

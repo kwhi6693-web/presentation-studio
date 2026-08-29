@@ -28,36 +28,50 @@ GitHub scheduled workflows are best-effort and may be delayed under load. Theref
 
 ## Safe update transaction
 
-1. Resolve the latest non-draft, non-prerelease GitHub release and dereference its tag to a commit.
-2. Classify each source as `current`, `update_available`, or `ahead_of_release`.
+1. Select exactly one configured source for the run and resolve its latest non-draft, non-prerelease GitHub release.
+2. Dereference the release tag to an immutable commit and classify the selected source as `current`, `update_available`, or `ahead_of_release`.
 3. Download the release archive into a temporary staging directory.
 4. Reject absolute paths, traversal, `.git` content, symbolic links, multiple archive roots, or unexpected repository identity.
 5. Validate the upstream license before importing anything.
 6. Copy only allowlisted paths and restore Presentation Studio-owned adapters.
 7. Update source-lock and engine metadata atomically.
-8. Run unit tests, example verification, deterministic package build, archive verification, and repository checks.
-9. If all gates pass and an actual vendored change exists, commit it to a unique `automation/sync-stable-upstreams-*` branch and open a pull request against `main`.
+8. Run repository health, unit/contract tests, example verification, two deterministic package builds in runner temporary storage, archive verification, and the source-scope gate.
+9. If all gates pass and an actual vendored change exists, commit only that source's mapped paths and provenance metadata to a source-specific `automation/sync-<source>-*` branch and open a pull request against `main`.
 
-The transaction is fail-closed: a download, archive, path, license, test, packaging, or validation failure prevents any automated branch push or pull request. Runs are serialized. If a same-repository synchronization pull request is already open, the workflow checks out its branch, merges the current `main`, and adds the latest verified upstream changes with a normal non-force push instead of opening a duplicate. The diagnostic report is uploaded as an Actions artifact, and the repository ruleset requires the pull request's `verify` check before merge.
+The transaction is fail-closed: a download, archive, path, license, test, packaging, or validation failure prevents any automated branch push or pull request. The matrix gives each source an independent runner, branch, report, and pull request; `fail-fast: false` prevents one source failure from contaminating the others, while job concurrency serializes only runs for the same source. If a same-source synchronization pull request is already open, the workflow checks out its branch, merges the current `main`, and updates that pull request with a normal non-force push instead of opening a duplicate. A current or ahead-of-release source produces no file changes, commit, or pull request. The diagnostic report is uploaded as a source-named Actions artifact, and the repository ruleset requires the pull request's `verify` check before merge.
+
+Normal upstream pull requests never stage generated release outputs. The workflow stages only the selected source's allowlisted import roots plus `presentation-studio/source-lock.json` and `presentation-studio/engines/manifest.json`; the source-scope command rejects another engine, `dist/presentation-studio.zip`, or `checksums.sha256`.
+
+## Package and release boundary
+
+`build_package.py` and `verify_package.py` accept explicit `--archive` and `--checksum` paths. The synchronization workflow sends both files to `$RUNNER_TEMP`, builds twice, compares the bytes and checksum records, and runs archive/source parity verification before the branch is pushed. This keeps generated package output out of ordinary upstream diffs without weakening the package gate. The tracked `dist/presentation-studio.zip` and `checksums.sha256` remain the source-checkout/release baseline; a formal GitHub Release builds and uploads its colocated ZIP and `.sha256` asset separately.
+
+The PR body records the source, previous and new release/tag/commit, changed-file count, additions/deletions, imported and preserved paths, license/provenance, and the validation workflow URL.
 
 ## Commands
 
-Read-only status check:
+Read-only status check for all sources:
 
 ```bash
 python scripts/upstream_sync.py check --json
 ```
 
-Synchronize all sources and write a machine-readable report:
+Read-only status check for one source:
 
 ```bash
-python scripts/upstream_sync.py sync --all --report artifacts/upstream-sync-report.json
+python scripts/upstream_sync.py check --source ppt-master --json
 ```
 
-Synchronize one source:
+Synchronize exactly one source and write a machine-readable report:
 
 ```bash
 python scripts/upstream_sync.py sync --source ppt-master --report artifacts/upstream-sync-report.json
+```
+
+Verify a changed-file list against one source's allowlist:
+
+```bash
+python scripts/upstream_sync.py verify-scope --source ppt-master --paths-file changed-paths.txt
 ```
 
 Run the full local gate:
@@ -71,7 +85,7 @@ python scripts/verify_package.py
 
 ## Event relay
 
-The upstream release relay calls the repository dispatch endpoint with event type `upstream_release`. Store the target repository token only in the relay platform; do not commit it to this repository. The target workflow uses the repository-scoped `GITHUB_TOKEN` and declares `contents: write` plus `pull-requests: write`, which are required to push the isolated automation branch and open its pull request. It cannot bypass the `main` ruleset.
+The upstream release relay calls the repository dispatch endpoint with event type `upstream_release`. Store the target repository token only in the relay platform; do not commit it to this repository. The target workflow uses the repository-scoped `GITHUB_TOKEN` and declares `contents: write` plus `pull-requests: write`, which are required to push an isolated source branch and open or update its pull request. It cannot bypass the `main` ruleset.
 
 Example event body:
 

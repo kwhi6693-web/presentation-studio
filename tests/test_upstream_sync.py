@@ -23,6 +23,10 @@ from scripts.upstream_sync import (
     main,
     parse_release,
     record_release_metadata,
+    select_sources,
+    source_managed_paths,
+    source_pr_title,
+    validate_source_paths,
 )
 
 try:
@@ -889,6 +893,29 @@ class StagingImporterTests(unittest.TestCase):
         self.assertEqual(result.new_commit, self.release.commit)
         self.assertIn("presentation-studio/engines/sample", result.changed_paths)
 
+    def test_successful_stage_updates_and_reports_provenance_metadata(self) -> None:
+        (self.skill / "source-lock.json").write_text(
+            json.dumps({"sources": [{"name": "sample"}]}) + "\n", encoding="utf-8"
+        )
+        (self.skill / "engines" / "manifest.json").write_text(
+            json.dumps({"sample": {"source_name": "sample"}}) + "\n", encoding="utf-8"
+        )
+        archive = self.make_archive(
+            {
+                "author-skill-release/LICENSE": "MIT License\n",
+                "author-skill-release/package/new.txt": "new\n",
+            }
+        )
+
+        result = stage_source_update(self.root, self.source, self.release, archive)
+
+        self.assertIn("presentation-studio/source-lock.json", result.changed_paths)
+        self.assertIn("presentation-studio/engines/manifest.json", result.changed_paths)
+        lock = json.loads((self.skill / "source-lock.json").read_text(encoding="utf-8"))
+        self.assertEqual(lock["sources"][0]["release_tag"], self.release.tag)
+        manifest = json.loads((self.skill / "engines" / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["sample"]["commit"], self.release.commit)
+
     def test_missing_declared_import_path_leaves_destination_unchanged(self) -> None:
         archive = self.make_archive(
             {"author-skill-release/LICENSE": "MIT License\n", "author-skill-release/other.txt": "x"}
@@ -1015,6 +1042,106 @@ class MetadataAndReportingTests(unittest.TestCase):
         payload = json.loads(report.read_text(encoding="utf-8"))
         self.assertEqual(payload["status"], "FAIL")
         self.assertIn("Unknown upstream source", payload["error"])
+
+    def test_sync_no_update_is_a_true_noop_and_reports_no_pr_change(self) -> None:
+        report = self.root / "artifacts" / "current.json"
+        release = {
+            "tag": "v1.2.3",
+            "commit": "a" * 40,
+            "url": "https://github.com/author/skill/releases/tag/v1.2.3",
+            "published_at": "2026-08-13T00:00:00Z",
+        }
+        check_result = [
+            {
+                "name": "sample",
+                "status": "current",
+                "locked_commit": "a" * 40,
+                "locked_release_tag": "v1.2.3",
+                "release": release,
+            }
+        ]
+        with patch("scripts.upstream_sync.load_source_configs", return_value=(self.source,)), patch(
+            "scripts.upstream_sync.load_source_lock", return_value={"sources": []}
+        ), patch("scripts.upstream_sync.check_sources", return_value=check_result), patch(
+            "scripts.upstream_sync.record_release_metadata"
+        ) as record_metadata:
+            exit_code = main(["sync", "--source", "sample", "--report", str(report)])
+
+        self.assertEqual(exit_code, 0)
+        record_metadata.assert_not_called()
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        self.assertFalse(payload["changed"])
+        self.assertEqual(payload["source"], "sample")
+        self.assertEqual(payload["applied"], [])
+
+
+class SourceIsolationContractTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.sources = (
+            SourceConfig(
+                name="alpha",
+                owner="author",
+                repository_name="alpha",
+                repository="https://github.com/author/alpha.git",
+                expected_license="MIT",
+                imports=(ImportRule("package", "engines/alpha", "replace"),),
+                preserve=("engines/alpha/SKILL.md",),
+            ),
+            SourceConfig(
+                name="beta",
+                owner="author",
+                repository_name="beta",
+                repository="https://github.com/author/beta.git",
+                expected_license="MIT",
+                imports=(ImportRule("package", "engines/beta", "replace"),),
+                preserve=(),
+            ),
+        )
+        self.release = ReleaseInfo(
+            tag="v2.0.0",
+            commit="d" * 40,
+            url="https://github.com/author/alpha/releases/tag/v2.0.0",
+            published_at="2026-08-13T00:00:00Z",
+        )
+
+    def test_sync_source_selection_requires_exactly_one_source(self) -> None:
+        self.assertEqual(
+            select_sources(self.sources, ["alpha"], require_single=True),
+            (self.sources[0],),
+        )
+        with self.assertRaisesRegex(SyncError, "exactly one"):
+            select_sources(self.sources, [], require_single=True)
+        with self.assertRaisesRegex(SyncError, "exactly one"):
+            select_sources(self.sources, ["alpha", "beta"], require_single=True)
+
+    def test_source_managed_paths_exclude_release_outputs_and_include_provenance(self) -> None:
+        paths = set(source_managed_paths(self.sources[0]))
+        self.assertIn("presentation-studio/engines/alpha", paths)
+        self.assertIn("presentation-studio/engines/alpha/SKILL.md", paths)
+        self.assertIn("presentation-studio/source-lock.json", paths)
+        self.assertIn("presentation-studio/engines/manifest.json", paths)
+        self.assertNotIn("dist/presentation-studio.zip", paths)
+        self.assertNotIn("checksums.sha256", paths)
+
+    def test_source_scope_rejects_a_second_upstream_engine(self) -> None:
+        validate_source_paths(
+            self.sources[0],
+            [
+                "presentation-studio/engines/alpha/SKILL.md",
+                "presentation-studio/source-lock.json",
+            ],
+        )
+        with self.assertRaisesRegex(SyncError, "outside the managed paths"):
+            validate_source_paths(
+                self.sources[0],
+                ["presentation-studio/engines/beta/SKILL.md"],
+            )
+
+    def test_source_pr_title_names_the_exact_release(self) -> None:
+        self.assertEqual(
+            source_pr_title(self.sources[0], self.release),
+            "chore(upstream): update alpha to v2.0.0",
+        )
 
 
 if __name__ == "__main__":

@@ -323,7 +323,7 @@ python scripts/upstream_sync.py check --json
 git diff --check
 ```
 
-`build_package.py` creates deterministic `dist/presentation-studio.zip`; run it only when intentionally rebuilding the source-checkout package. The repository [checksums.sha256](checksums.sha256) names that source-checkout artifact. A Release-only `presentation-studio.zip.sha256` is generated beside a release ZIP and is a different contract.
+`build_package.py` creates deterministic `dist/presentation-studio.zip`; run it only when intentionally rebuilding the source-checkout package. Upstream synchronization CI passes explicit `--archive` and `--checksum` paths under runner temporary storage, builds twice, verifies parity, and keeps generated outputs out of the normal source PR. The repository [checksums.sha256](checksums.sha256) names the tracked source-checkout artifact; a formal Release generates the colocated `presentation-studio.zip.sha256` beside its release ZIP as a different contract.
 
 ## ⚠️ Known limitations
 

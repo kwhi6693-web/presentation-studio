@@ -11,25 +11,51 @@ permissions:
   contents: write
   pull-requests: write
 
-concurrency:
-  group: upstream-release-sync
-  cancel-in-progress: false
-
 jobs:
   synchronize:
+    strategy:
+      fail-fast: false
+      matrix:
+        source:
+          - ppt-master
+          - guizang-ppt-skill
+          - frontend-slides
+          - baoyu-skills
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    concurrency:
+      group: upstream-release-sync-${{ matrix.source }}
+      cancel-in-progress: false
+    env:
+      SOURCE: ${{ matrix.source }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
       - name: Verify repository health
         run: python scripts/verify_repository_health.py
-      - name: Select the synchronization pull request branch
+      - name: Check selected stable release
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          sync_dir="$RUNNER_TEMP/presentation-studio-upstream/$SOURCE"
+          mkdir -p "$sync_dir"
+          python scripts/upstream_sync.py check --source "$SOURCE" --json > "$sync_dir/check.json"
+          status="$(jq -r '.sources[0].status' "$sync_dir/check.json")"
+          if [[ "$status" == "update_available" ]]; then
+            echo "update=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "update=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No stable update for $SOURCE (status: $status)"
+          fi
+      - name: Select the source-specific synchronization branch
         id: sync_pr
+        if: steps.release.outputs.update == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -38,94 +64,152 @@ jobs:
           selection="$(
             gh pr list --state open --base main --limit 100 \
               --json headRefName,url,isCrossRepository \
-              --jq 'map(select((.isCrossRepository == false) and (.headRefName | test("^automation/sync-stable-upstreams-[0-9]+-[0-9]+$")))) | first // {}'
+              | jq --arg source "$SOURCE" 'map(select((.isCrossRepository == false) and (.headRefName | startswith(("automation/sync-" + $source + "-"))))) | first // {}'
           )"
           sync_branch="$(jq -r '.headRefName // ""' <<< "$selection")"
           existing_pr="$(jq -r '.url // ""' <<< "$selection")"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if [[ -n "$sync_branch" ]]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git fetch origin "$sync_branch"
+            auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 --wrap=0)"
+            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth_header" fetch origin "$sync_branch"
             git switch --create "$sync_branch" --track "origin/$sync_branch"
             git merge --no-edit origin/main
           else
-            sync_branch="automation/sync-stable-upstreams-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            sync_branch="automation/sync-${SOURCE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            git switch --create "$sync_branch"
           fi
           echo "branch=$sync_branch" >> "$GITHUB_OUTPUT"
           echo "url=$existing_pr" >> "$GITHUB_OUTPUT"
-      - name: Stage latest stable upstream releases
-        run: python scripts/upstream_sync.py sync --all --report artifacts/upstream-sync-report.json
-      - name: Run unit and repository contract tests
-        run: python -m unittest discover -s tests -v
-      - name: Verify bilingual example products
-        run: python scripts/verify_examples.py
-      - name: Build deterministic package
-        run: python scripts/build_package.py
-      - name: Verify package and archive parity
-        run: python scripts/verify_package.py
-      - name: Stage verified changes
-        id: changes
+      - name: Stage the selected upstream release
+        id: sync
+        if: steps.release.outputs.update == 'true'
         shell: bash
         run: |
-          git add -- \
-            presentation-studio/engines \
-            presentation-studio/source-lock.json \
-            dist/presentation-studio.zip \
-            checksums.sha256
+          set -euo pipefail
+          sync_dir="$RUNNER_TEMP/presentation-studio-upstream/$SOURCE"
+          python scripts/upstream_sync.py sync --source "$SOURCE" --report "$sync_dir/sync.json" > "$sync_dir/sync-output.json"
+          changed="$(jq -r '.changed | tostring' "$sync_dir/sync.json")"
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          if [[ "$changed" != "true" ]]; then
+            echo "::notice::The selected source became current before staging; no PR change is required."
+          fi
+      - name: Run unit and repository contract tests
+        if: steps.sync.outputs.changed == 'true'
+        run: python -m unittest discover -s tests -v
+      - name: Verify bilingual example products
+        if: steps.sync.outputs.changed == 'true'
+        run: python scripts/verify_examples.py
+      - name: Build deterministic packages in runner temp
+        if: steps.sync.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_dir="$RUNNER_TEMP/presentation-studio-upstream/$SOURCE/package"
+          mkdir -p "$package_dir"
+          python scripts/build_package.py --archive "$package_dir/presentation-studio-a.zip" --checksum "$package_dir/presentation-studio-a.zip.sha256"
+          python scripts/build_package.py --archive "$package_dir/presentation-studio-b.zip" --checksum "$package_dir/presentation-studio-b.zip.sha256"
+          cmp --silent "$package_dir/presentation-studio-a.zip" "$package_dir/presentation-studio-b.zip"
+          sha_a="$(cut -d ' ' -f1 "$package_dir/presentation-studio-a.zip.sha256")"
+          sha_b="$(cut -d ' ' -f1 "$package_dir/presentation-studio-b.zip.sha256")"
+          [[ "$sha_a" == "$sha_b" ]]
+      - name: Verify package and archive parity
+        if: steps.sync.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_dir="$RUNNER_TEMP/presentation-studio-upstream/$SOURCE/package"
+          python scripts/verify_package.py --archive "$package_dir/presentation-studio-a.zip" --checksum "$package_dir/presentation-studio-a.zip.sha256"
+          python scripts/verify_package.py --archive "$package_dir/presentation-studio-b.zip" --checksum "$package_dir/presentation-studio-b.zip.sha256"
+      - name: Verify source scope before staging
+        if: steps.sync.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sync_dir="$RUNNER_TEMP/presentation-studio-upstream/$SOURCE"
+          git diff --name-only origin/main > "$sync_dir/changed-paths.txt"
+          python scripts/upstream_sync.py verify-scope --source "$SOURCE" --paths-file "$sync_dir/changed-paths.txt"
+      - name: Stage only reported source paths
+        id: changes
+        if: steps.sync.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sync_dir="$RUNNER_TEMP/presentation-studio-upstream/$SOURCE"
+          mapfile -t staging_paths < <(jq -r '.applied[0].staging_paths[]' "$sync_dir/sync.json")
+          if ((${#staging_paths[@]} == 0)); then
+            echo "::error::The source sync report did not provide staging paths."
+            exit 1
+          fi
+          git add -- "${staging_paths[@]}"
+          git diff --cached --name-only > "$sync_dir/staged-paths.txt"
+          python scripts/upstream_sync.py verify-scope --source "$SOURCE" --paths-file "$sync_dir/staged-paths.txt"
           if git diff --cached --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
-      - name: Open a pull request for synchronized sources
+      - name: Render source-specific pull request evidence
+        id: pr_body
+        if: steps.changes.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sync_dir="$RUNNER_TEMP/presentation-studio-upstream/$SOURCE"
+          changed_file_count="$(git diff --cached --name-only | wc -l | tr -d ' ')"
+          read -r additions deletions < <(
+            git diff --cached --numstat | awk '
+              BEGIN { additions = 0; deletions = 0 }
+              $1 ~ /^[0-9]+$/ { additions += $1; deletions += $2 }
+              END { print additions, deletions }
+            '
+          )
+          release_tag="$(jq -r '.sources[0].release.tag' "$sync_dir/sync.json")"
+          pr_title="chore(upstream): update $SOURCE to $release_tag"
+          workflow_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          python scripts/upstream_sync.py render-pr-body \
+            --report "$sync_dir/sync.json" \
+            --output "$sync_dir/pr-body.md" \
+            --changed-files "$changed_file_count" \
+            --additions "$additions" \
+            --deletions "$deletions" \
+            --workflow-url "$workflow_url"
+          echo "title=$pr_title" >> "$GITHUB_OUTPUT"
+          echo "body=$sync_dir/pr-body.md" >> "$GITHUB_OUTPUT"
+      - name: Open or update the source-specific pull request
         if: steps.changes.outputs.changed == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SYNC_BRANCH: ${{ steps.sync_pr.outputs.branch }}
           EXISTING_PR: ${{ steps.sync_pr.outputs.url }}
+          PR_TITLE: ${{ steps.pr_body.outputs.title }}
+          PR_BODY: ${{ steps.pr_body.outputs.body }}
         run: |
           set -euo pipefail
-          sync_branch="$SYNC_BRANCH"
-          existing_pr="$EXISTING_PR"
-          ensure_existing_pr_open() {
-            current_pr_json="$(
-              gh pr view "$existing_pr" --json state,headRefName,isCrossRepository,url
-            )"
-            current_pr_url="$(
-              jq -r --arg branch "$sync_branch" \
-                'select((.state == "OPEN") and (.isCrossRepository == false) and (.headRefName == $branch)) | .url // ""' \
-                <<< "$current_pr_json"
-            )"
-            if [[ "$current_pr_url" != "$existing_pr" ]]; then
-              echo "::error::Synchronization PR changed state during validation; rerun from current main."
-              exit 1
-            fi
-          }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [[ -z "$existing_pr" ]]; then
-            git switch -c "$sync_branch"
-          else
-            ensure_existing_pr_open
-          fi
-          git commit -m "chore: sync stable upstream releases"
-          git push --set-upstream origin "$sync_branch"
-          if [[ -n "$existing_pr" ]]; then
-            ensure_existing_pr_open
-            echo "::notice::Updated verified upstream changes in $existing_pr"
+          git commit -m "$PR_TITLE"
+          auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 --wrap=0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth_header" push --set-upstream origin "$SYNC_BRANCH"
+          if [[ -n "$EXISTING_PR" ]]; then
+            current_pr="$(gh pr view "$EXISTING_PR" --json state,headRefName,isCrossRepository)"
+            jq -e --arg branch "$SYNC_BRANCH" \
+              'select((.state == "OPEN") and (.isCrossRepository == false) and (.headRefName == $branch))' \
+              <<< "$current_pr" > /dev/null
+            gh pr edit "$EXISTING_PR" --title "$PR_TITLE" --body-file "$PR_BODY"
           else
             gh pr create \
               --base main \
-              --head "$sync_branch" \
-              --title "chore: sync stable upstream releases" \
-              --body "Automated verified update from workflow run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
+              --head "$SYNC_BRANCH" \
+              --title "$PR_TITLE" \
+              --body-file "$PR_BODY"
           fi
       - name: Upload synchronization report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: upstream-sync-report
-          path: artifacts/upstream-sync-report.json
+          name: upstream-sync-report-${{ matrix.source }}
+          path: ${{ runner.temp }}/presentation-studio-upstream/${{ matrix.source }}
           if-no-files-found: warn
           retention-days: 14

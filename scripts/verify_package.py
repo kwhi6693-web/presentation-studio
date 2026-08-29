@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import re
@@ -22,6 +23,7 @@ except ModuleNotFoundError:
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 SKILL_ROOT = REPOSITORY_ROOT / "presentation-studio"
 ARCHIVE_PATH = REPOSITORY_ROOT / "dist" / "presentation-studio.zip"
+CHECKSUM_PATH = REPOSITORY_ROOT / "checksums.sha256"
 EXPECTED_PRODUCT_IDS = {
     "native-editable-deck",
     "native-data-deck",
@@ -228,16 +230,22 @@ def verify_local_markdown_links() -> None:
                 fail(f"Broken local Markdown link in {document_name}: {target}")
 
 
-def verify_archive(skill_file_count: int) -> dict[str, object]:
-    if not ARCHIVE_PATH.is_file():
-        fail(f"Missing release archive: {ARCHIVE_PATH}")
+def verify_archive(
+    skill_file_count: int,
+    archive_path: Path = ARCHIVE_PATH,
+    checksum_path: Path = CHECKSUM_PATH,
+) -> dict[str, object]:
+    archive_path = archive_path.resolve()
+    checksum_path = checksum_path.resolve()
+    if not archive_path.is_file():
+        fail(f"Missing release archive: {archive_path}")
 
     disk_paths = {
         path.relative_to(SKILL_ROOT).as_posix(): path
         for path in SKILL_ROOT.rglob("*")
         if path.is_file()
     }
-    with zipfile.ZipFile(ARCHIVE_PATH) as archive:
+    with zipfile.ZipFile(archive_path) as archive:
         infos = [info for info in archive.infolist() if not info.is_dir()]
         names = [info.filename for info in infos]
         if len(names) != len(set(names)):
@@ -288,14 +296,18 @@ def verify_archive(skill_file_count: int) -> dict[str, object]:
             if mismatches:
                 fail(f"Archive content mismatch: {mismatches[0]}")
 
-    archive_sha256 = sha256_file(ARCHIVE_PATH)
-    checksum_path = REPOSITORY_ROOT / "checksums.sha256"
+    archive_sha256 = sha256_file(archive_path)
     checksum_line = checksum_path.read_text(encoding="ascii").strip()
     expected_checksum, expected_name = checksum_line.split(maxsplit=1)
-    if expected_name.replace("\\", "/") != "dist/presentation-studio.zip":
-        fail("checksums.sha256 points to an unexpected archive path")
+    expected_archive_name = (
+        "dist/presentation-studio.zip"
+        if checksum_path == CHECKSUM_PATH.resolve()
+        else archive_path.name
+    )
+    if expected_name.replace("\\", "/") != expected_archive_name:
+        fail(f"Checksum points to an unexpected archive path: {expected_name}")
     if archive_sha256 != expected_checksum.lower():
-        fail("Archive SHA-256 does not match checksums.sha256")
+        fail(f"Archive SHA-256 does not match {checksum_path}")
 
     return {
         "archive_sha256": archive_sha256,
@@ -304,13 +316,17 @@ def verify_archive(skill_file_count: int) -> dict[str, object]:
     }
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--archive", type=Path, default=ARCHIVE_PATH)
+    parser.add_argument("--checksum", type=Path, default=CHECKSUM_PATH)
+    args = parser.parse_args(argv)
     try:
         summary = verify_structure()
         verify_readme()
         repository_assets = verify_repository_assets()
         verify_local_markdown_links()
-        archive = verify_archive(summary["files"])
+        archive = verify_archive(summary["files"], args.archive, args.checksum)
     except (AssertionError, OSError, ValueError, zipfile.BadZipFile) as error:
         print(f"FAIL: {error}", file=sys.stderr)
         return 1
