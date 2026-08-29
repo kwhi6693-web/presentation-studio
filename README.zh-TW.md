@@ -323,7 +323,7 @@ python scripts/upstream_sync.py check --json
 git diff --check
 ```
 
-`build_package.py` 會產生確定性的 `dist/presentation-studio.zip`；只有在明確重建原始碼套件時才執行它。[checksums.sha256](checksums.sha256) 面向原始碼儲存庫中的這個構建產物；Release 旁的 `presentation-studio.zip.sha256` 是另一份契約。
+`build_package.py` 會產生確定性的 `dist/presentation-studio.zip`；只有在明確重建原始碼套件時才執行它。上游同步 CI 會把明確的 `--archive` 與 `--checksum` 路徑指向 Runner 暫存目錄，執行兩次建置並驗證一致性，普通原始碼 PR 不會攜帶生成產物。[checksums.sha256](checksums.sha256) 面向原始碼儲存庫中的這個建置基線；正式 Release 會在發布 ZIP 旁生成 `presentation-studio.zip.sha256`，兩者屬於不同契約。
 
 ## ⚠️ 已知限制
 

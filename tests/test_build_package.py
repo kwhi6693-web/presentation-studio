@@ -7,11 +7,18 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 try:
-    from scripts.build_package import build_archive
+    from scripts.build_package import build_archive, build_repository_package
 except ModuleNotFoundError:
     build_archive = None
+    build_repository_package = None
+
+try:
+    from scripts.verify_package import verify_archive
+except ModuleNotFoundError:
+    verify_archive = None
 
 try:
     from scripts.build_release_checksum import build_release_checksum
@@ -139,6 +146,31 @@ class DeterministicPackageTests(unittest.TestCase):
             checksum_path.read_text(encoding="ascii"),
             f"{expected_digest}  presentation-studio.zip\n",
         )
+
+    def test_repository_package_uses_the_explicit_checksum_contract(self) -> None:
+        self.assertIsNotNone(build_repository_package, "repository package builder is missing")
+        archive_path = self.root / "ci" / "presentation-studio.zip"
+        checksum_path = self.root / "ci" / "presentation-studio.zip.sha256"
+
+        digest = build_repository_package(self.skill, archive_path, checksum_path)
+
+        self.assertEqual(
+            checksum_path.read_text(encoding="ascii"),
+            f"{digest}  presentation-studio.zip\n",
+        )
+
+    def test_package_verifier_accepts_explicit_archive_and_checksum_paths(self) -> None:
+        self.assertIsNotNone(verify_archive, "package verifier is missing")
+        archive_path = self.root / "ci" / "presentation-studio.zip"
+        checksum_path = self.root / "ci" / "presentation-studio.zip.sha256"
+        digest = build_archive(self.skill, archive_path)
+        checksum_path.write_text(f"{digest}  {archive_path.name}\n", encoding="ascii")
+
+        with patch("scripts.verify_package.SKILL_ROOT", self.skill):
+            summary = verify_archive(2, archive_path, checksum_path)
+
+        self.assertEqual(summary["archive_sha256"], digest)
+        self.assertEqual(summary["archive_files"], 2)
 
 
 if __name__ == "__main__":

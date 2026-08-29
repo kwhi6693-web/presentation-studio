@@ -127,40 +127,55 @@ class RepositoryContractTests(unittest.TestCase):
             'cron: "17 * * * *"',
             "contents: write",
             "concurrency",
+            "persist-credentials: false",
         ):
             with self.subTest(term=term):
                 self.assertTrue(term in workflow, f"Sync workflow is missing: {term}")
 
-    def test_sync_workflow_routes_verified_changes_through_a_pull_request(self) -> None:
+    def test_sync_workflow_routes_each_verified_source_through_an_isolated_pull_request(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "sync-upstreams.yml").read_text(
             encoding="utf-8"
         )
 
         for term in (
+            "fail-fast: false",
+            "group: upstream-release-sync-${{ matrix.source }}",
+            "- ppt-master",
+            "- guizang-ppt-skill",
+            "- frontend-slides",
+            "- baoyu-skills",
             "pull-requests: write",
             "cancel-in-progress: false",
-            'sync_branch="automation/sync-stable-upstreams-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"',
             "--limit 100",
             "isCrossRepository",
             ".isCrossRepository == false",
-            'test("^automation/sync-stable-upstreams-[0-9]+-[0-9]+$")',
-            'git fetch origin "$sync_branch"',
+            'startswith(("automation/sync-" + $source + "-"))',
+            'git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth_header" fetch origin "$sync_branch"',
             'git switch --create "$sync_branch" --track "origin/$sync_branch"',
             "git merge --no-edit origin/main",
+            'sync_branch="automation/sync-${SOURCE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"',
             "SYNC_BRANCH: ${{ steps.sync_pr.outputs.branch }}",
             "EXISTING_PR: ${{ steps.sync_pr.outputs.url }}",
-            'gh pr view "$existing_pr"',
-            'git push --set-upstream origin "$sync_branch"',
+            'gh pr view "$EXISTING_PR"',
+            'gh pr edit "$EXISTING_PR"',
+            'git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth_header" push --set-upstream origin "$SYNC_BRANCH"',
             "gh pr create",
             "--base main",
         ):
             with self.subTest(term=term):
                 self.assertIn(term, workflow)
-        self.assertNotIn("          git push\n", workflow)
+        self.assertIn('python scripts/upstream_sync.py sync --source "$SOURCE"', workflow)
+        self.assertIn("verify-scope --source \"$SOURCE\"", workflow)
+        self.assertNotIn("sync --all", workflow)
+        self.assertNotIn("          git add -- \\\n            presentation-studio/engines", workflow)
+        self.assertNotIn("dist/presentation-studio.zip", workflow)
+        self.assertNotIn("checksums.sha256", workflow)
         self.assertNotIn("--force", workflow)
-        self.assertNotIn('sync_branch="${{ steps.sync_pr.outputs.branch }}"', workflow)
-        self.assertEqual(workflow.count("ensure_existing_pr_open"), 3)
-        self.assertLess(workflow.index("Verify package and archive parity"), workflow.index("git push"))
+        self.assertEqual(workflow.count("gh pr edit"), 1)
+        self.assertLess(
+            workflow.index("Verify package and archive parity"),
+            workflow.index('push --set-upstream origin "$SYNC_BRANCH"'),
+        )
 
     def test_source_lock_declares_stable_update_policy(self) -> None:
         lock_path = ROOT / "presentation-studio" / "source-lock.json"

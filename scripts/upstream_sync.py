@@ -115,6 +115,7 @@ class SyncResult:
     new_tree_hash: str
     changed_paths: tuple[str, ...]
     preserved_paths: tuple[str, ...]
+    managed_paths: tuple[str, ...] = ()
 
 
 class GitHubClient:
@@ -335,6 +336,146 @@ def load_source_configs(path: Path = CONFIG_PATH) -> tuple[SourceConfig, ...]:
     if len(sources) != 4 or len({source.name for source in sources}) != len(sources):
         raise SyncError("Upstream source configuration must contain four unique sources")
     return sources
+
+
+def select_sources(
+    sources: tuple[SourceConfig, ...],
+    names: list[str],
+    *,
+    require_single: bool = False,
+) -> tuple[SourceConfig, ...]:
+    """Return the requested sources, optionally enforcing one-source execution."""
+
+    if require_single and len(names) != 1:
+        raise SyncError("Synchronization requires exactly one upstream source")
+    if len(names) != len(set(names)):
+        raise SyncError("Upstream source selection contains duplicates")
+    if not names:
+        return sources
+
+    configured = {source.name: source for source in sources}
+    unknown = sorted(set(names) - set(configured))
+    if unknown:
+        raise SyncError(f"Unknown upstream source: {unknown[0]}")
+    return tuple(configured[name] for name in names)
+
+
+def _normalized_repository_path(path: str) -> str:
+    pure = PurePosixPath(path.replace("\\", "/"))
+    if pure.is_absolute() or ".." in pure.parts or not pure.parts:
+        raise SyncError(f"Invalid repository path in upstream configuration: {path}")
+    return pure.as_posix()
+
+
+def source_managed_paths(source: SourceConfig) -> tuple[str, ...]:
+    """Return the only repository path roots a source synchronization may change."""
+
+    paths = {
+        "presentation-studio/source-lock.json",
+        "presentation-studio/engines/manifest.json",
+    }
+    for rule in source.imports:
+        paths.add(f"presentation-studio/{_normalized_repository_path(rule.destination)}")
+    for preserved in source.preserve:
+        paths.add(f"presentation-studio/{_normalized_repository_path(preserved)}")
+    return tuple(sorted(paths))
+
+
+def validate_source_paths(source: SourceConfig, paths: list[str] | tuple[str, ...]) -> None:
+    """Fail closed when a diff contains another source or a generated release output."""
+
+    managed = source_managed_paths(source)
+    prohibited = {"dist/presentation-studio.zip", "checksums.sha256"}
+    for raw_path in paths:
+        path = _normalized_repository_path(raw_path)
+        if path in prohibited:
+            raise SyncError(f"Generated release output is not allowed in an upstream PR: {path}")
+        if not any(path == root or path.startswith(f"{root}/") for root in managed):
+            raise SyncError(
+                f"Path outside the managed paths for {source.name}: {path}"
+            )
+
+
+def source_pr_title(source: SourceConfig, release: ReleaseInfo) -> str:
+    return f"chore(upstream): update {source.name} to {release.tag}"
+
+
+def render_pr_body(
+    report: dict,
+    *,
+    changed_file_count: int,
+    additions: int,
+    deletions: int,
+    workflow_url: str,
+) -> str:
+    """Render factual, source-specific evidence for an upstream synchronization PR."""
+
+    if report.get("status") != "PASS" or not report.get("changed"):
+        raise SyncError("Cannot render a PR body for a non-changing synchronization report")
+    sources = report.get("sources")
+    applied = report.get("applied")
+    if not isinstance(sources, list) or len(sources) != 1:
+        raise SyncError("A synchronization PR report must contain exactly one source result")
+    if not isinstance(applied, list) or len(applied) != 1:
+        raise SyncError("A synchronization PR report must contain exactly one applied result")
+
+    source_result = sources[0]
+    applied_result = applied[0]
+    if not isinstance(source_result, dict) or not isinstance(applied_result, dict):
+        raise SyncError("Synchronization PR report has an invalid source result")
+    source_name = source_result.get("name")
+    release = source_result.get("release")
+    if not isinstance(source_name, str) or not isinstance(release, dict):
+        raise SyncError("Synchronization PR report is missing release identity")
+    old_commit = source_result.get("locked_commit")
+    old_tag = source_result.get("locked_release_tag") or "not recorded"
+    new_tag = release.get("tag")
+    new_commit = release.get("commit")
+    release_url = release.get("url")
+    if not all(isinstance(value, str) and value for value in (old_commit, new_tag, new_commit, release_url)):
+        raise SyncError("Synchronization PR report has incomplete release provenance")
+
+    changed_paths = applied_result.get("changed_paths", [])
+    preserved_paths = applied_result.get("preserved_paths", [])
+    repository = applied_result.get("repository")
+    license_name = applied_result.get("license")
+    if not isinstance(changed_paths, list) or not isinstance(preserved_paths, list):
+        raise SyncError("Synchronization PR report has invalid path evidence")
+    if not isinstance(repository, str) or not isinstance(license_name, str):
+        raise SyncError("Synchronization PR report is missing license or repository evidence")
+
+    def path_lines(paths: list[str]) -> str:
+        return "\n".join(f"- `{path}`" for path in paths) or "- None"
+
+    return "\n".join(
+        [
+            "## Verified upstream synchronization",
+            "",
+            f"- Source: `{source_name}`",
+            f"- Upstream repository: {repository}",
+            f"- Previous release/tag: `{old_tag}` (`{old_commit}`)",
+            f"- New release/tag: [`{new_tag}`]({release_url}) (`{new_commit}`)",
+            f"- Changed files: {changed_file_count} files (+{additions} / -{deletions})",
+            "",
+            "### Imported and preserved paths",
+            "",
+            "Imported/updated:",
+            path_lines(changed_paths),
+            "",
+            "Presentation Studio adapters preserved:",
+            path_lines(preserved_paths),
+            "",
+            "### Verification",
+            "",
+            "- Repository health, unit/contract tests, bilingual examples, deterministic package build, archive parity, and source scope gate: PASS",
+            f"- License: `{license_name}` (verified before import)",
+            "- Provenance recorded in `presentation-studio/source-lock.json` and `presentation-studio/engines/manifest.json`.",
+            f"- Workflow evidence: {workflow_url}",
+            "",
+            "The pull request contains only this source's allowlisted upstream content and provenance metadata. Generated release ZIP/checksum files are intentionally excluded; a formal Release builds them separately.",
+            "",
+        ]
+    )
 
 
 def load_source_lock(path: Path = SOURCE_LOCK_PATH) -> dict:
@@ -649,6 +790,10 @@ def check_sources(
                 "name": source.name,
                 "status": status,
                 "locked_commit": locked_commit,
+                "locked_release_tag": locked.get("release_tag"),
+                "locked_release_commit": locked.get("release_commit"),
+                "repository": source.repository,
+                "expected_license": source.expected_license,
                 "release": asdict(release),
             }
         )
@@ -914,6 +1059,12 @@ def stage_source_update(
 
         synchronized_at = _timestamp()
         _update_staged_metadata(staged_skill, source, release, synchronized_at)
+        changed_paths.extend(
+            [
+                "presentation-studio/source-lock.json",
+                "presentation-studio/engines/manifest.json",
+            ]
+        )
 
         if not (staged_skill / "SKILL.md").is_file():
             raise SyncError("Staged update removed the root Skill entry")
@@ -942,6 +1093,7 @@ def stage_source_update(
         new_tree_hash=new_hash,
         changed_paths=tuple(dict.fromkeys(changed_paths)),
         preserved_paths=source.preserve,
+        managed_paths=source_managed_paths(source),
     )
 
 
@@ -952,21 +1104,65 @@ def main(argv: list[str] | None = None) -> int:
     check_parser.add_argument("--json", action="store_true", dest="as_json")
     check_parser.add_argument("--source", action="append", default=[])
     sync_parser = subparsers.add_parser("sync", help="Synchronize verified stable releases")
-    selection = sync_parser.add_mutually_exclusive_group(required=True)
-    selection.add_argument("--all", action="store_true")
-    selection.add_argument("--source", action="append", default=[])
+    sync_parser.add_argument("--source", action="append", required=True)
     sync_parser.add_argument("--report", type=Path)
+    scope_parser = subparsers.add_parser(
+        "verify-scope", help="Verify that a source diff stays within its allowlist"
+    )
+    scope_parser.add_argument("--source", required=True)
+    scope_parser.add_argument("--paths-file", type=Path, required=True)
+    render_parser = subparsers.add_parser(
+        "render-pr-body", help="Render source-specific synchronization PR evidence"
+    )
+    render_parser.add_argument("--report", type=Path, required=True)
+    render_parser.add_argument("--output", type=Path, required=True)
+    render_parser.add_argument("--changed-files", type=int, required=True)
+    render_parser.add_argument("--additions", type=int, required=True)
+    render_parser.add_argument("--deletions", type=int, required=True)
+    render_parser.add_argument("--workflow-url", required=True)
     args = parser.parse_args(argv)
 
     try:
         sources = load_source_configs()
+        if args.command == "verify-scope":
+            source = select_sources(sources, [args.source], require_single=True)[0]
+            try:
+                paths = [
+                    line.strip()
+                    for line in args.paths_file.read_text(encoding="utf-8").splitlines()
+                    if line.strip()
+                ]
+            except OSError as error:
+                raise SyncError("Unable to read changed-path list") from error
+            validate_source_paths(source, paths)
+            print(f"PASS: {source.name} changed paths are within the source allowlist")
+            return 0
+        if args.command == "render-pr-body":
+            try:
+                report = json.loads(args.report.read_text(encoding="utf-8-sig"))
+            except (OSError, json.JSONDecodeError) as error:
+                raise SyncError("Unable to read synchronization report") from error
+            body = render_pr_body(
+                report,
+                changed_file_count=args.changed_files,
+                additions=args.additions,
+                deletions=args.deletions,
+                workflow_url=args.workflow_url,
+            )
+            try:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(body, encoding="utf-8", newline="\n")
+            except OSError as error:
+                raise SyncError("Unable to write synchronization PR body") from error
+            print(f"PASS: rendered synchronization PR body to {args.output}")
+            return 0
+
         selected_names = getattr(args, "source", [])
-        if selected_names:
-            selected = set(selected_names)
-            sources = tuple(source for source in sources if source.name in selected)
-            unknown = selected - {source.name for source in sources}
-            if unknown:
-                raise SyncError(f"Unknown upstream source: {sorted(unknown)[0]}")
+        sources = select_sources(
+            sources,
+            selected_names,
+            require_single=args.command == "sync",
+        )
         client = GitHubClient(token=os.environ.get("UPSTREAM_GITHUB_TOKEN"))
         results = check_sources(sources, load_source_lock(), client)
         if args.command == "sync":
@@ -985,12 +1181,21 @@ def main(argv: list[str] | None = None) -> int:
                             archive,
                         )
                         sync_result = stage_source_update(REPOSITORY_ROOT, source, release, archive)
-                        applied.append(asdict(sync_result))
-                    else:
-                        record_release_metadata(REPOSITORY_ROOT, source, release, checked_at)
+                        applied_record = asdict(sync_result)
+                        applied_record.update(
+                            {
+                                "release": asdict(release),
+                                "repository": source.repository,
+                                "license": source.expected_license,
+                                "staging_paths": list(sync_result.changed_paths),
+                            }
+                        )
+                        applied.append(applied_record)
             report = {
                 "status": "PASS",
                 "checked_at": checked_at,
+                "source": sources[0].name,
+                "changed": bool(applied),
                 "sources": results,
                 "applied": applied,
             }

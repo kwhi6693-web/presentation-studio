@@ -14,7 +14,7 @@ Do not install optional providers merely to hide a failed capability probe. Miss
 ## Branch and pull-request workflow
 
 1. Start from the latest `main` in an isolated clone or worktree.
-2. Create one focused feature or fix branch.
+2. Create one focused feature or fix branch. An automated upstream branch must contain exactly one source update.
 3. Write a failing behavioral test before changing executable behavior.
 4. Commit with a narrow message and explicitly stage only intended paths.
 5. Open a draft pull request and wait for the `verify` status check.
@@ -43,11 +43,11 @@ python scripts/build_package.py
 python scripts/verify_package.py
 ```
 
-When package inputs change, run `scripts/build_package.py` twice and record both SHA-256 values. They must be identical. Stage `dist/presentation-studio.zip` and `checksums.sha256` only when their change is an intended, verified consequence of package-source changes.
+When package inputs change, run `scripts/build_package.py` twice and record both SHA-256 values. They must be identical. The upstream synchronization workflow writes both validation packages to runner temporary storage and never stages `dist/presentation-studio.zip` or `checksums.sha256` in a normal source PR. Those tracked files remain the source-checkout baseline; formal release automation creates the colocated release ZIP and checksum assets.
 
 ## Vendored upstream boundaries
 
-The following paths are governed by `presentation-studio/source-lock.json`, stable-release discovery, import allowlists, license verification, and adapter preservation:
+The following paths are governed by `presentation-studio/source-lock.json`, stable-release discovery, import allowlists, license verification, and adapter preservation. Automated updates stage only the mapped source roots and the required provenance metadata; do not use a broad `git add presentation-studio/engines`:
 
 - `presentation-studio/engines/`
 - `presentation-studio/source-lock.json`
