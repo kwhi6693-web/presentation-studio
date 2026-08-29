@@ -1,6 +1,6 @@
-# 🎬 Presentation Studio
+# Presentation Studio
 
-> Agent-compatible presentation and visual production Skill for editable PPTX, HTML slides, PDF, visual assets, exact-data routing, and rendered QA.
+> Turn prompts and structured data into editable PPTX, HTML presentations, and visual assets with AI Agents.
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md)
 
@@ -11,6 +11,45 @@
 [![Product recipes: 13](https://img.shields.io/badge/Product%20recipes-13-2f855a?style=flat-square)](presentation-studio/catalog/products.json)
 [![Style profiles: 8](https://img.shields.io/badge/Style%20profiles-8-805ad5?style=flat-square)](presentation-studio/catalog/styles.json)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg?style=flat-square)](LICENSE)
+
+![Presentation Studio showcase: editorial slides, charts, and visual layouts](presentation-studio/engines/guizang/assets/ppt-skill-showcase.png)
+
+## Why Presentation Studio
+
+Start with a brief, structured data, or existing assets. Presentation Studio selects a product and engine route, keeps the data contract explicit, and delivers outputs that can be inspected before handoff.
+
+| Editable PPTX | Multi-format output | Agent-compatible | Quality-gated |
+|---|---|---|---|
+| Native text, charts, tables, and shapes when the selected route supports them | PPTX, HTML, PDF, PNG, and SVG routes | Catalog-backed choices that adapt to the host capabilities available at runtime | Validate, render, inspect, repair, and verify again |
+
+## Showcase
+
+The examples below are representative routes for common presentation work. Links marked **acceptance fixture** are checked-in, verifiable contract outputs; they are not presented as production benchmarks or as screenshots of a generated product demo.
+
+| Demo | Prompt | Preview / output | Engine / route and editability |
+|---|---|---|---|
+| **AI Industry Report** | “Turn an industry brief into a concise 16:9 executive report with an editable summary slide.” | [English PPTX](examples/bilingual-acceptance/en/presentation-acceptance-en.pptx) · [PDF preview](examples/bilingual-acceptance/en/presentation-acceptance-en.pdf) *(acceptance fixture)* | `executive-deck` → `ppt-master`; native-editable PPTX route |
+| **Financial / Data Report** | “Use the supplied metrics without changing values, units, order, or missing values; deliver editable charts and tables.” | [English PPTX](examples/bilingual-acceptance/en/presentation-acceptance-en.pptx) · [HTML](examples/bilingual-acceptance/en/presentation-acceptance-en.html) *(acceptance fixture)* | `native-data-deck` → `ppt-master`; native charts and tables |
+| **Swiss Editorial Deck** | “Build a restrained strategy narrative with strong typography, editorial pacing, and a web-readable companion.” | [Existing Swiss visual asset](presentation-studio/engines/guizang/assets/ppt-skill-showcase.png) | `swiss-editorial-deck` → `guizang` → `ppt-master` → `frontend-slides`; PPTX editability is route-dependent, HTML is publication output |
+| **Technical Architecture** | “Explain the system boundary, data flow, and operating model in a review-ready architecture deck.” | [Architecture guide](docs/architecture.md) · [Diagram reference](presentation-studio/references/diagrams-infographics.md) | `technical-deck` → `ppt-master` for editable PPTX, or `technical-diagram` → `baoyu` for editable SVG |
+
+The repository currently ships contract fixtures and engine reference visuals rather than four domain-specific production decks. This keeps the showcase honest while making the intended route, output, and editability boundary explicit.
+
+## Quick Start
+
+1. Download the [latest release](https://github.com/kwhi6693-web/presentation-studio/releases/latest) and verify `presentation-studio.zip` with its `.sha256` file.
+2. Extract the single `presentation-studio/` Skill root and make it available to your Agent/Harness.
+3. Start with a brief such as:
+
+```text
+Create a 16:9 financial report from the supplied quarterly CSV.
+Return an editable PPTX, preserve every value and unit, and check charts, tables,
+overflow, and data fidelity before delivery.
+```
+
+The full [installation](#installation), [usage](#usage), and capability-specific verification guidance follows below.
+
+The detailed engineering model, compatibility boundaries, and verification contracts continue below for implementation and maintenance work.
 
 ## 🧭 Overview
 

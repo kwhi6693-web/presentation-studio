@@ -1,6 +1,6 @@
-# 🎬 Presentation Studio
+# Presentation Studio
 
-> 面向兼容 Agent 的演示文稿与视觉生产 Skill：支持可编辑 PPTX、HTML 幻灯片、PDF、视觉素材、精准数据路由与渲染验收。
+> 让 AI Agent 把提示词和结构化数据转成高质量、可编辑的 PPTX、HTML 演示和视觉内容。
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md)
 
@@ -11,6 +11,44 @@
 [![Product recipes: 13](https://img.shields.io/badge/Product%20recipes-13-2f855a?style=flat-square)](presentation-studio/catalog/products.json)
 [![Style profiles: 8](https://img.shields.io/badge/Style%20profiles-8-805ad5?style=flat-square)](presentation-studio/catalog/styles.json)
 [![许可证：AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg?style=flat-square)](LICENSE)
+
+![Presentation Studio 展示：编辑型幻灯片、图表与视觉布局](presentation-studio/engines/guizang/assets/ppt-skill-showcase.png)
+
+## 为什么选择 Presentation Studio
+
+从 brief、结构化数据或已有素材开始。Presentation Studio 会选择产品与引擎路由，明确保留数据契约，并在交付前检查输出。
+
+| 可编辑 PPTX | 多格式输出 | Agent 适配 | 质量门禁 |
+|---|---|---|---|
+| 在所选 route 支持时，使用原生文本、图表、表格与形状 | 支持 PPTX、HTML、PDF、PNG 与 SVG 路径 | 基于 Catalog 的选择会适配运行时实际可用的宿主能力 | 验证、渲染、检查、修复，再次验证 |
+
+## 展示案例
+
+以下案例代表常见的演示文稿路线。标记为 **验收 fixture** 的链接是仓库内可验证的契约输出；它们不被描述为生产基准，也不是生成式产品 Demo 的截图。
+
+| 案例 | Prompt | 预览 / 输出 | 引擎 / route 与可编辑性 |
+|---|---|---|---|
+| **AI 行业报告** | “把行业 brief 转成一份简洁的 16:9 高管报告，并提供可编辑的总结页。” | [英文 PPTX](examples/bilingual-acceptance/en/presentation-acceptance-en.pptx) · [PDF 预览](examples/bilingual-acceptance/en/presentation-acceptance-en.pdf)（验收 fixture） | `executive-deck` → `ppt-master`；原生可编辑 PPTX 路径 |
+| **财务 / 数据报告** | “使用提供的指标，不改变数值、单位、顺序或缺失值；交付可编辑图表与表格。” | [英文 PPTX](examples/bilingual-acceptance/en/presentation-acceptance-en.pptx) · [HTML](examples/bilingual-acceptance/en/presentation-acceptance-en.html)（验收 fixture） | `native-data-deck` → `ppt-master`；原生图表与表格 |
+| **Swiss Editorial Deck** | “用克制的排版、清晰的字体层级和编辑式节奏完成策略叙事，并提供适合 Web 阅读的版本。” | [现有 Swiss 视觉素材](presentation-studio/engines/guizang/assets/ppt-skill-showcase.png) | `swiss-editorial-deck` → `guizang` → `ppt-master` → `frontend-slides`；PPTX 可编辑性取决于 route，HTML 是发布型输出 |
+| **技术架构** | “把系统边界、数据流和运行模型讲清楚，形成适合评审的架构演示。” | [架构说明](docs/architecture.md) · [图示参考](presentation-studio/references/diagrams-infographics.md) | `technical-deck` → `ppt-master` 生成可编辑 PPTX，或 `technical-diagram` → `baoyu` 生成可编辑 SVG |
+
+仓库当前提供的是契约 fixture 与引擎参考视觉素材，而不是四套领域生产成品。这样可以保持展示真实，同时明确每条路线的目标、输出和可编辑性边界。
+
+## 快速开始
+
+1. 下载[最新 Release](https://github.com/kwhi6693-web/presentation-studio/releases/latest)，并使用对应的 `.sha256` 文件校验 `presentation-studio.zip`。
+2. 解压得到唯一的 `presentation-studio/` Skill 根目录，并让你的 Agent/Harness 发现它。
+3. 从下面这样的 brief 开始：
+
+```text
+根据提供的季度 CSV 制作一份 16:9 财务报告。
+返回可编辑 PPTX，保留所有数值和单位，并在交付前检查图表、表格、溢出和数据保真度。
+```
+
+完整的[安装](#安装)、[使用](#使用)和按能力划分的验证说明见下文。
+
+下面继续保留面向实现与维护的工程模型、兼容性边界和验证契约。
 
 ## 🧭 项目概览
 
