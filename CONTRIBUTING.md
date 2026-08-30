@@ -5,7 +5,7 @@
 ## Development requirements
 
 - Git with a configured GitHub noreply identity.
-- Python 3.11 or newer for repository tests and packaging.
+- Python 3.10 through 3.13 for repository tests and packaging.
 - Node.js 20.9.0 or newer when changing or validating a Node-based engine path.
 - The optional runtimes and modules reported by `presentation-studio/scripts/preflight.py` for the capability being exercised.
 
@@ -42,6 +42,10 @@ python scripts/verify_examples.py
 python scripts/build_package.py
 python scripts/verify_package.py
 ```
+
+The runtime, dependency, system-tool, and CI matrix contract is maintained in
+[docs/dependencies.md](docs/dependencies.md). The pull-request gate exercises
+Python 3.10 through 3.13 on Ubuntu and Windows in a fresh environment.
 
 When package inputs change, run `scripts/build_package.py` twice and record both SHA-256 values. They must be identical. The upstream synchronization workflow writes both validation packages to runner temporary storage and never stages `dist/presentation-studio.zip` or `checksums.sha256` in a normal source PR. Those tracked files remain the source-checkout baseline; formal release automation creates the colocated release ZIP and checksum assets.
 

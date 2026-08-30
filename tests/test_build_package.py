@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -171,6 +172,69 @@ class DeterministicPackageTests(unittest.TestCase):
 
         self.assertEqual(summary["archive_sha256"], digest)
         self.assertEqual(summary["archive_files"], 2)
+
+    def test_build_cli_compares_two_requested_archives(self) -> None:
+        builder = Path(__file__).resolve().parents[1] / "scripts" / "build_package.py"
+        first = self.root / "ci" / "presentation-studio-a.zip"
+        first_checksum = self.root / "ci" / "presentation-studio-a.zip.sha256"
+        second = self.root / "ci" / "presentation-studio-b.zip"
+        second_checksum = self.root / "ci" / "presentation-studio-b.zip.sha256"
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(builder),
+                "--skill-root",
+                str(self.skill),
+                "--archive",
+                str(first),
+                "--checksum",
+                str(first_checksum),
+                "--compare-archive",
+                str(second),
+                "--compare-checksum",
+                str(second_checksum),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        self.assertEqual(first.read_bytes(), second.read_bytes())
+        first_digest = first_checksum.read_text(encoding="ascii").split()[0]
+        second_digest = second_checksum.read_text(encoding="ascii").split()[0]
+        self.assertEqual(first_digest, second_digest)
+        self.assertIn("PASS: deterministic comparison", result.stdout)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for package smoke validation")
+    def test_package_verifier_smokes_a_fresh_extraction(self) -> None:
+        repository_root = Path(__file__).resolve().parents[1]
+        builder = repository_root / "scripts" / "build_package.py"
+        verifier = repository_root / "scripts" / "verify_package.py"
+        archive = self.root / "ci" / "presentation-studio.zip"
+        checksum = self.root / "ci" / "presentation-studio.zip.sha256"
+
+        build_repository_package(repository_root / "presentation-studio", archive, checksum)
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(verifier),
+                "--archive",
+                str(archive),
+                "--checksum",
+                str(checksum),
+                "--smoke",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        self.assertIn('"smoke":', result.stdout)
 
 
 if __name__ == "__main__":

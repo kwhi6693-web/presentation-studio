@@ -6,7 +6,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import zipfile
@@ -149,6 +152,9 @@ def verify_readme() -> None:
             "Validated",
             "Exact-data",
             "Native PPTX",
+            "Python 3.10–3.13",
+            "Node.js 20.9+",
+            "docs/dependencies.md",
             "scripts/install.ps1",
             "scripts/install.sh",
             "hugohe3/ppt-master",
@@ -162,6 +168,9 @@ def verify_readme() -> None:
             "已验证",
             "精准数据",
             "原生 PPTX",
+            "Python 3.10–3.13",
+            "Node.js 20.9+",
+            "docs/dependencies.md",
             "未执行",
         ),
         "README.zh-TW.md": (
@@ -170,6 +179,9 @@ def verify_readme() -> None:
             "已驗證",
             "精準資料",
             "原生 PPTX",
+            "Python 3.10–3.13",
+            "Node.js 20.9+",
+            "docs/dependencies.md",
             "未執行",
         ),
     }
@@ -188,6 +200,7 @@ def verify_readme() -> None:
 def verify_repository_assets() -> dict[str, int]:
     required_paths = (
         "docs/architecture.md",
+        "docs/dependencies.md",
         "docs/upstream-sync.md",
         ".github/workflows/validate.yml",
         ".github/workflows/sync-upstreams.yml",
@@ -216,6 +229,7 @@ def verify_local_markdown_links() -> None:
         "CONTRIBUTORS.md",
         "THIRD_PARTY_NOTICES.md",
         "docs/architecture.md",
+        "docs/dependencies.md",
         "docs/upstream-sync.md",
     ]:
         document_path = REPOSITORY_ROOT / document_name
@@ -234,6 +248,7 @@ def verify_archive(
     skill_file_count: int,
     archive_path: Path = ARCHIVE_PATH,
     checksum_path: Path = CHECKSUM_PATH,
+    smoke_node: str | Path | None = None,
 ) -> dict[str, object]:
     archive_path = archive_path.resolve()
     checksum_path = checksum_path.resolve()
@@ -245,6 +260,7 @@ def verify_archive(
         for path in SKILL_ROOT.rglob("*")
         if path.is_file()
     }
+    smoke_summary: dict[str, object] | None = None
     with zipfile.ZipFile(archive_path) as archive:
         infos = [info for info in archive.infolist() if not info.is_dir()]
         names = [info.filename for info in infos]
@@ -296,6 +312,12 @@ def verify_archive(
             if mismatches:
                 fail(f"Archive content mismatch: {mismatches[0]}")
 
+            if smoke_node is not None:
+                smoke_summary = _verify_extracted_package_smoke(
+                    extracted_skill_root,
+                    smoke_node,
+                )
+
     archive_sha256 = sha256_file(archive_path)
     checksum_line = checksum_path.read_text(encoding="ascii").strip()
     expected_checksum, expected_name = checksum_line.split(maxsplit=1)
@@ -309,10 +331,64 @@ def verify_archive(
     if archive_sha256 != expected_checksum.lower():
         fail(f"Archive SHA-256 does not match {checksum_path}")
 
-    return {
+    summary: dict[str, object] = {
         "archive_sha256": archive_sha256,
         "archive_files": len(disk_paths),
         "non_ascii_utf8_paths": non_ascii_count,
+    }
+    if smoke_summary is not None:
+        summary["smoke"] = smoke_summary
+    return summary
+
+
+def _verify_extracted_package_smoke(
+    extracted_skill_root: Path,
+    node_executable: str | Path,
+) -> dict[str, object]:
+    """Run the installed-package smoke check against the fresh extraction."""
+
+    self_check = extracted_skill_root / "scripts" / "self_check.py"
+    if not self_check.is_file():
+        fail("Fresh package extraction is missing scripts/self_check.py")
+
+    node_path = Path(node_executable).resolve()
+    if not node_path.is_absolute() or not node_path.is_file():
+        fail(f"Package smoke check received an invalid Node executable: {node_executable}")
+
+    environment = dict(os.environ)
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(self_check),
+            "--root",
+            str(extracted_skill_root),
+            "--python",
+            sys.executable,
+            "--node",
+            str(node_path),
+            "--json",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=extracted_skill_root,
+        env=environment,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr.strip() or result.stdout.strip())[-2000:]
+        fail(f"Fresh package smoke check failed: {detail}")
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        fail(f"Fresh package smoke check returned invalid JSON: {error}")
+    if payload.get("status") != "PASS":
+        fail(f"Fresh package smoke check did not pass: {payload}")
+    return {
+        "status": "PASS",
+        "product": payload.get("smoke", {}).get("product"),
+        "engines": payload.get("smoke", {}).get("engines"),
     }
 
 
@@ -320,13 +396,35 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--archive", type=Path, default=ARCHIVE_PATH)
     parser.add_argument("--checksum", type=Path, default=CHECKSUM_PATH)
+    parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help="run self_check.py from a fresh extraction using the current Python and Node",
+    )
+    parser.add_argument(
+        "--node",
+        type=Path,
+        help="absolute Node executable for --smoke (defaults to the configured PATH entry)",
+    )
     args = parser.parse_args(argv)
+    if args.node is not None and not args.smoke:
+        parser.error("--node requires --smoke")
     try:
+        smoke_node = None
+        if args.smoke:
+            smoke_node = args.node or shutil.which("node")
+            if smoke_node is None:
+                fail("--smoke requires a real Node executable; none was found")
         summary = verify_structure()
         verify_readme()
         repository_assets = verify_repository_assets()
         verify_local_markdown_links()
-        archive = verify_archive(summary["files"], args.archive, args.checksum)
+        archive = verify_archive(
+            summary["files"],
+            args.archive,
+            args.checksum,
+            smoke_node=smoke_node,
+        )
     except (AssertionError, OSError, ValueError, zipfile.BadZipFile) as error:
         print(f"FAIL: {error}", file=sys.stderr)
         return 1

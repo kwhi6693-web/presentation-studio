@@ -18,29 +18,38 @@ except ImportError:
 ROOT = Path(__file__).resolve().parents[1]
 
 README_EXPECTATIONS = {
-    "README.md": (
-        "Agent-compatible",
-        "Compatibility matrix",
-        "Designed",
-        "Validated",
-        "Native PPTX",
-        "NOT EXECUTED",
+        "README.md": (
+            "Agent-compatible",
+            "Compatibility matrix",
+            "Designed",
+            "Validated",
+            "Native PPTX",
+            "Python 3.10–3.13",
+            "Node.js 20.9+",
+            "docs/dependencies.md",
+            "NOT EXECUTED",
         "presentation-acceptance-en.pptx",
     ),
-    "README.zh-CN.md": (
-        "兼容性矩阵",
-        "设计支持",
-        "已验证",
-        "原生 PPTX",
-        "未执行",
+        "README.zh-CN.md": (
+            "兼容性矩阵",
+            "设计支持",
+            "已验证",
+            "原生 PPTX",
+            "Python 3.10–3.13",
+            "Node.js 20.9+",
+            "docs/dependencies.md",
+            "未执行",
         "presentation-acceptance-zh.pptx",
     ),
-    "README.zh-TW.md": (
-        "相容性矩陣",
-        "設計支援",
-        "已驗證",
-        "原生 PPTX",
-        "未執行",
+        "README.zh-TW.md": (
+            "相容性矩陣",
+            "設計支援",
+            "已驗證",
+            "原生 PPTX",
+            "Python 3.10–3.13",
+            "Node.js 20.9+",
+            "docs/dependencies.md",
+            "未執行",
         "presentation-acceptance-zh.pptx",
     ),
 }
@@ -68,10 +77,13 @@ class RepositoryContractTests(unittest.TestCase):
 
     def test_operational_documentation_is_split_by_audience(self) -> None:
         architecture = ROOT / "docs" / "architecture.md"
+        dependencies = ROOT / "docs" / "dependencies.md"
         upstream_sync = ROOT / "docs" / "upstream-sync.md"
         self.assertTrue(architecture.is_file(), "Detailed architecture guide is missing")
+        self.assertTrue(dependencies.is_file(), "Dependency contract is missing")
         self.assertTrue(upstream_sync.is_file(), "Upstream synchronization guide is missing")
         architecture_text = architecture.read_text(encoding="utf-8-sig")
+        dependencies_text = dependencies.read_text(encoding="utf-8-sig")
         sync_text = upstream_sync.read_text(encoding="utf-8-sig")
         for layer in range(20):
             self.assertIn(f"L{layer}", architecture_text)
@@ -85,6 +97,16 @@ class RepositoryContractTests(unittest.TestCase):
         ):
             with self.subTest(term=term):
                 self.assertIn(term, sync_text)
+        for term in (
+            "RUNTIME DEPENDENCIES",
+            "DEV/TEST DEPENDENCIES",
+            "BUILD DEPENDENCIES",
+            "SYSTEM DEPENDENCIES",
+            "HOST/AGENT CAPABILITIES",
+            "CI-ONLY DEPENDENCIES",
+        ):
+            with self.subTest(dependency_section=term):
+                self.assertIn(term, dependencies_text)
 
     def test_three_readmes_are_standalone_and_separate_designed_from_validated(self) -> None:
         for relative_path, terms in README_EXPECTATIONS.items():

@@ -28,6 +28,7 @@ jobs:
       cancel-in-progress: false
     env:
       SOURCE: ${{ matrix.source }}
+      PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -36,6 +37,9 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20.9.0"
       - name: Verify repository health
         run: python scripts/verify_repository_health.py
       - name: Check selected stable release
@@ -94,6 +98,9 @@ jobs:
           if [[ "$changed" != "true" ]]; then
             echo "::notice::The selected source became current before staging; no PR change is required."
           fi
+      - name: Verify repository health after source update
+        if: steps.sync.outputs.changed == 'true'
+        run: python scripts/verify_repository_health.py
       - name: Run unit and repository contract tests
         if: steps.sync.outputs.changed == 'true'
         run: python -m unittest discover -s tests -v
@@ -106,21 +113,25 @@ jobs:
         run: |
           set -euo pipefail
           package_dir="$RUNNER_TEMP/presentation-studio-upstream/$SOURCE/package"
-          mkdir -p "$package_dir"
-          python scripts/build_package.py --archive "$package_dir/presentation-studio-a.zip" --checksum "$package_dir/presentation-studio-a.zip.sha256"
-          python scripts/build_package.py --archive "$package_dir/presentation-studio-b.zip" --checksum "$package_dir/presentation-studio-b.zip.sha256"
-          cmp --silent "$package_dir/presentation-studio-a.zip" "$package_dir/presentation-studio-b.zip"
-          sha_a="$(cut -d ' ' -f1 "$package_dir/presentation-studio-a.zip.sha256")"
-          sha_b="$(cut -d ' ' -f1 "$package_dir/presentation-studio-b.zip.sha256")"
-          [[ "$sha_a" == "$sha_b" ]]
+          python scripts/build_package.py \
+            --archive "$package_dir/presentation-studio-a.zip" \
+            --checksum "$package_dir/presentation-studio-a.zip.sha256" \
+            --compare-archive "$package_dir/presentation-studio-b.zip" \
+            --compare-checksum "$package_dir/presentation-studio-b.zip.sha256"
       - name: Verify package and archive parity
         if: steps.sync.outputs.changed == 'true'
         shell: bash
         run: |
           set -euo pipefail
           package_dir="$RUNNER_TEMP/presentation-studio-upstream/$SOURCE/package"
-          python scripts/verify_package.py --archive "$package_dir/presentation-studio-a.zip" --checksum "$package_dir/presentation-studio-a.zip.sha256"
-          python scripts/verify_package.py --archive "$package_dir/presentation-studio-b.zip" --checksum "$package_dir/presentation-studio-b.zip.sha256"
+          python scripts/verify_package.py \
+            --archive "$package_dir/presentation-studio-a.zip" \
+            --checksum "$package_dir/presentation-studio-a.zip.sha256" \
+            --smoke
+          python scripts/verify_package.py \
+            --archive "$package_dir/presentation-studio-b.zip" \
+            --checksum "$package_dir/presentation-studio-b.zip.sha256" \
+            --smoke
       - name: Verify source scope before staging
         if: steps.sync.outputs.changed == 'true'
         shell: bash
@@ -144,6 +155,7 @@ jobs:
           git add -- "${staging_paths[@]}"
           git diff --cached --name-only > "$sync_dir/staged-paths.txt"
           python scripts/upstream_sync.py verify-scope --source "$SOURCE" --paths-file "$sync_dir/staged-paths.txt"
+          git diff --cached --check
           if git diff --cached --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else

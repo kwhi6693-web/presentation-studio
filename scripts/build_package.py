@@ -110,15 +110,57 @@ def build_repository_package(
     return digest
 
 
+def compare_package_outputs(
+    first_archive: Path,
+    first_digest: str,
+    second_archive: Path,
+    second_digest: str,
+) -> None:
+    """Fail when two independently written package outputs differ."""
+
+    first_archive = first_archive.resolve()
+    second_archive = second_archive.resolve()
+    if first_archive == second_archive:
+        raise ValueError("Deterministic comparison requires two distinct archive paths")
+    if first_digest != second_digest:
+        raise ValueError(
+            "Deterministic package SHA-256 mismatch: "
+            f"{first_digest} != {second_digest}"
+        )
+    if first_archive.read_bytes() != second_archive.read_bytes():
+        raise ValueError("Deterministic package byte comparison failed")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--skill-root", type=Path, default=DEFAULT_SKILL_ROOT)
     parser.add_argument("--archive", type=Path, default=DEFAULT_ARCHIVE_PATH)
     parser.add_argument("--checksum", type=Path, default=DEFAULT_CHECKSUM_PATH)
+    parser.add_argument(
+        "--compare-archive",
+        type=Path,
+        help="optional second archive path to build and compare byte-for-byte",
+    )
+    parser.add_argument(
+        "--compare-checksum",
+        type=Path,
+        help="checksum path for the optional second archive",
+    )
     args = parser.parse_args()
+
+    if (args.compare_archive is None) != (args.compare_checksum is None):
+        parser.error("--compare-archive and --compare-checksum must be supplied together")
 
     digest = build_repository_package(args.skill_root, args.archive, args.checksum)
     print(f"PASS: built {args.archive} ({digest})")
+    if args.compare_archive is not None and args.compare_checksum is not None:
+        second_digest = build_repository_package(
+            args.skill_root,
+            args.compare_archive,
+            args.compare_checksum,
+        )
+        compare_package_outputs(args.archive, digest, args.compare_archive, second_digest)
+        print(f"PASS: deterministic comparison {args.archive} == {args.compare_archive}")
     return 0
 
 

@@ -210,12 +210,15 @@ PASS、PARTIAL、FAIL 是 route 結果；NOT AVAILABLE 與 NOT EXECUTED 用來�
 |---|---|---|
 | 視覺理解 | brief 解讀、基於來源的構圖與視覺檢查 | 相關視覺 route 可能為 PARTIAL 或 NOT EXECUTED |
 | 本機檔案系統存取 | 讀取輸入、執行本機腳本、收集檔案 | 本機生成或驗證無法執行 |
-| Python 3.10+ | preflight、驗證、打包與 Python 引擎步驟 | 相關 route 不符合執行時要求 |
-| Node.js | Node 引擎與 HTML 工具 | 依賴 Node 的 route 不可用 |
+| Python 3.10–3.13 | preflight、驗證、打包與 Python 引擎步驟 | 相關 route 不符合執行時要求 |
+| Node.js 20.9+ | Node 引擎與 HTML 工具 | 依賴 Node 的 route 不可用 |
 | Git | 原始碼檢出、溯源與上游同步 | 原始碼/更新流程受限 |
 | Chromium / Playwright | 瀏覽器行為、HTML 渲染與 HTML 轉 PDF QA | HTML/PDF QA 為 PARTIAL 或 NOT EXECUTED |
 | Office 渲染器 | PPTX 渲染檢查 | 仍可產生原生 PPTX，但沒有 Office 渲染證據 |
 | Image provider | Provider 圖像生成 | Provider route 為 NOT AVAILABLE，應選擇其他 route |
+
+儲存庫執行時、依賴、系統工具與 CI 契約見
+[docs/dependencies.md](docs/dependencies.md)。
 
 ## 📦 安裝
 
