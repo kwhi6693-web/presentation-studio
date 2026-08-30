@@ -3,20 +3,57 @@ name: Validate package
 on:
   push:
   pull_request:
+  schedule:
+    - cron: "17 3 * * 1"
 
 permissions:
   contents: read
 
 jobs:
-  verify:
-    runs-on: ubuntu-latest
+  checks:
+    name: checks (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python-version: "3.10"
+          - os: ubuntu-latest
+            python-version: "3.11"
+          - os: ubuntu-latest
+            python-version: "3.12"
+          - os: ubuntu-latest
+            python-version: "3.13"
+          - os: windows-latest
+            python-version: "3.12"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20.9.0"
+      - name: Create a clean Python environment (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv --without-pip "$RUNNER_TEMP/presentation-studio-venv"
+          echo "$RUNNER_TEMP/presentation-studio-venv/bin" >> "$GITHUB_PATH"
+      - name: Create a clean Python environment (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $venv = Join-Path $env:RUNNER_TEMP "presentation-studio-venv"
+          python -m venv --without-pip $venv
+          Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $venv "Scripts")
       - name: Verify repository health
         run: python scripts/verify_repository_health.py
       - name: Run unit and repository contract tests
@@ -24,24 +61,37 @@ jobs:
       - name: Verify bilingual example products
         run: python scripts/verify_examples.py
       - name: Build deterministic packages in runner temp
-        shell: bash
+        run: >-
+          python scripts/build_package.py
+          --archive "${{ runner.temp }}/presentation-studio-a.zip"
+          --checksum "${{ runner.temp }}/presentation-studio-a.zip.sha256"
+          --compare-archive "${{ runner.temp }}/presentation-studio-b.zip"
+          --compare-checksum "${{ runner.temp }}/presentation-studio-b.zip.sha256"
+      - name: Verify folder, catalogs, provenance, ZIP parity, and fresh extraction
+        run: >-
+          python scripts/verify_package.py
+          --archive "${{ runner.temp }}/presentation-studio-a.zip"
+          --checksum "${{ runner.temp }}/presentation-studio-a.zip.sha256"
+          --smoke
+      - name: Verify the second deterministic package output
+        run: >-
+          python scripts/verify_package.py
+          --archive "${{ runner.temp }}/presentation-studio-b.zip"
+          --checksum "${{ runner.temp }}/presentation-studio-b.zip.sha256"
+          --smoke
+      - name: Check repository hygiene and tracked release outputs
         run: |
-          set -euo pipefail
-          package_dir="$RUNNER_TEMP/presentation-studio-package"
-          mkdir -p "$package_dir"
-          python scripts/build_package.py --archive "$package_dir/presentation-studio-a.zip" --checksum "$package_dir/presentation-studio-a.zip.sha256"
-          python scripts/build_package.py --archive "$package_dir/presentation-studio-b.zip" --checksum "$package_dir/presentation-studio-b.zip.sha256"
-          cmp --silent "$package_dir/presentation-studio-a.zip" "$package_dir/presentation-studio-b.zip"
-          sha_a="$(cut -d ' ' -f1 "$package_dir/presentation-studio-a.zip.sha256")"
-          sha_b="$(cut -d ' ' -f1 "$package_dir/presentation-studio-b.zip.sha256")"
-          [[ "$sha_a" == "$sha_b" ]]
-      - name: Verify folder, catalogs, provenance, and ZIP parity
-        shell: bash
-        run: |
-          set -euo pipefail
-          package_dir="$RUNNER_TEMP/presentation-studio-package"
-          python scripts/verify_package.py --archive "$package_dir/presentation-studio-a.zip" --checksum "$package_dir/presentation-studio-a.zip.sha256"
-          python scripts/verify_package.py --archive "$package_dir/presentation-studio-b.zip" --checksum "$package_dir/presentation-studio-b.zip.sha256"
-      - name: Ensure tracked release outputs remain unchanged
-        run: git diff --exit-code -- dist/presentation-studio.zip checksums.sha256
+          git diff --check
+          git diff --exit-code -- dist/presentation-studio.zip checksums.sha256
 
+  verify:
+    name: verify
+    if: ${{ always() }}
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce the required repository matrix gate
+        if: ${{ needs.checks.result != 'success' }}
+        run: exit 1
+      - name: Required matrix checks passed
+        run: echo "All required repository checks passed."

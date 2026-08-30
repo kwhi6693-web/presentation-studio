@@ -180,9 +180,54 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
                 issues,
             )
 
+    @unittest.skipIf(health is None, "repository health verifier is missing")
+    def test_undeclared_repository_python_import_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_complete_repository(root)
+            (root / "scripts").mkdir()
+            (root / "scripts" / "unexpected.py").write_text(
+                "import definitely_not_a_declared_dependency\n", encoding="utf-8"
+            )
+
+            issues = health.validate_repository(root)
+
+            self.assertIn(
+                "undeclared Python import: definitely_not_a_declared_dependency in scripts/unexpected.py",
+                issues,
+            )
+
+    @unittest.skipIf(health is None, "repository health verifier is missing")
+    def test_repository_hygiene_rejects_cache_and_private_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_complete_repository(root)
+            (root / "__pycache__").mkdir()
+            (root / "__pycache__" / "bad.pyc").write_bytes(b"cache")
+            private_path = "C:" + r"\Users\ASUS\Documents\private.md"
+            (root / "notes.md").write_text(
+                f"machine path: {private_path}\n",
+                encoding="utf-8",
+            )
+
+            issues = health.validate_repository(root)
+
+            self.assertIn("repository hygiene forbids generated/cache path: __pycache__", issues)
+            self.assertIn("repository hygiene found a private absolute path: notes.md", issues)
+
     def _write_complete_repository(self, root: Path) -> None:
         (root / "docs").mkdir(parents=True)
         (root / "docs" / "guide.md").write_text("# Guide\n", encoding="utf-8")
+        (root / "docs" / "dependencies.md").write_text(
+            "# Dependencies\n"
+            "## RUNTIME DEPENDENCIES\n"
+            "## DEV/TEST DEPENDENCIES\n"
+            "## BUILD DEPENDENCIES\n"
+            "## SYSTEM DEPENDENCIES\n"
+            "## HOST/AGENT CAPABILITIES\n"
+            "## CI-ONLY DEPENDENCIES\n",
+            encoding="utf-8",
+        )
         (root / "README.md").write_text(
             "[English](README.md)\n"
             "[简体中文](README.zh-CN.md)\n"
@@ -239,7 +284,9 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             "  - uses: actions/checkout@"
             "3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n"
             "  - uses: actions/setup-python@"
-            "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0\n",
+            "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0\n"
+            "  - uses: actions/setup-node@"
+            "49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0\n",
             encoding="utf-8",
         )
         (workflows / "sync-upstreams.yml").write_text(
@@ -248,6 +295,8 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             "3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n"
             "  - uses: actions/setup-python@"
             "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0\n"
+            "  - uses: actions/setup-node@"
+            "49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0\n"
             "  - uses: actions/upload-artifact@"
             "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1\n",
             encoding="utf-8",

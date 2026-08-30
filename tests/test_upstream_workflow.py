@@ -43,15 +43,17 @@ class UpstreamWorkflowContractTests(unittest.TestCase):
 
     def test_package_is_built_in_runner_temp_and_verified_before_push(self) -> None:
         self.assertIn("$RUNNER_TEMP", self.workflow)
-        self.assertIn("build_package.py --archive", self.workflow)
-        self.assertIn("verify_package.py --archive", self.workflow)
+        self.assertIn("build_package.py", self.workflow)
+        self.assertIn("--archive", self.workflow)
+        self.assertIn("verify_package.py", self.workflow)
         self.assertLess(
-            self.workflow.index("verify_package.py --archive"),
+            self.workflow.index("verify_package.py"),
             self.workflow.index("push --set-upstream origin \"$SYNC_BRANCH\""),
         )
-        self.assertIn('sha_a="$(cut -d \' \' -f1', self.workflow)
-        self.assertIn('sha_b="$(cut -d \' \' -f1', self.workflow)
-        self.assertGreaterEqual(self.workflow.count("verify_package.py --archive"), 2)
+        self.assertIn("--compare-archive", self.workflow)
+        self.assertIn("--compare-checksum", self.workflow)
+        self.assertIn("--smoke", self.workflow)
+        self.assertGreaterEqual(self.workflow.count("verify_package.py"), 2)
 
     def test_triggers_permissions_and_existing_pr_update_are_preserved(self) -> None:
         for term in (
@@ -132,12 +134,23 @@ class UpstreamWorkflowContractTests(unittest.TestCase):
         workflow = VALIDATE_WORKFLOW.read_text(encoding="utf-8")
 
         for term in (
-            "$RUNNER_TEMP",
-            "build_package.py --archive",
-            "verify_package.py --archive",
-            "cmp --silent",
-            'sha_a="$(cut -d \' \' -f1',
-            'sha_b="$(cut -d \' \' -f1',
+            "${{ runner.temp }}",
+            "schedule:",
+            "ubuntu-latest",
+            "windows-latest",
+            'python-version: "3.10"',
+            'python-version: "3.11"',
+            'python-version: "3.12"',
+            'python-version: "3.13"',
+            "python -m venv --without-pip",
+            "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0",
+            "needs: checks",
+            "name: verify",
+            "build_package.py",
+            "--compare-archive",
+            "--compare-checksum",
+            "verify_package.py",
+            "--smoke",
             "git diff --exit-code -- dist/presentation-studio.zip checksums.sha256",
         ):
             with self.subTest(term=term):

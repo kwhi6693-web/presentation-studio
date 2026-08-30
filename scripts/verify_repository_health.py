@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 from collections import Counter
 from pathlib import Path
+import sys
 from urllib.parse import unquote, urlsplit
 
 
@@ -42,6 +44,10 @@ REVIEWED_ACTIONS = {
         "5fda3b95a4ea91299a34e894583c3862153e4b97",
         "v7.0.0",
     ),
+    "actions/setup-node": (
+        "49933ea5288caeca8642d1e84afbd3f7d6820020",
+        "v4.4.0",
+    ),
     "actions/upload-artifact": (
         "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
         "v7.0.1",
@@ -51,8 +57,51 @@ REVIEWED_ACTIONS = {
 EXPECTED_ACTION_COUNTS = {
     "actions/checkout": 2,
     "actions/setup-python": 2,
+    "actions/setup-node": 2,
     "actions/upload-artifact": 1,
 }
+
+PYTHON_CONTRACT_ROOTS = (
+    "scripts",
+    "tests",
+    "presentation-studio/core",
+    "presentation-studio/scripts",
+)
+LOCAL_IMPORT_ROOTS = {"core", "scripts"}
+DEPENDENCY_CONTRACT_PATH = "docs/dependencies.md"
+TEXT_SUFFIXES = {
+    ".json",
+    ".md",
+    ".ps1",
+    ".py",
+    ".sh",
+    ".toml",
+    ".ts",
+    ".tsx",
+    ".txt",
+    ".yml",
+    ".yaml",
+}
+HYGIENE_DIRECTORY_NAMES = {
+    ".idea",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+    "venv",
+}
+HYGIENE_FILE_NAMES = {".coverage", ".DS_Store", ".env", "Thumbs.db"}
+HYGIENE_SUFFIXES = {".log", ".pyc", ".pyo", ".swp", ".tmp"}
+PRIVATE_USER = Path.home().name
+PRIVATE_PATH_RE = re.compile(
+    rf"(?i)(?:[A-Z]:[\\/]+Users[\\/]+{re.escape(PRIVATE_USER)}\b|"
+    rf"/" + "Users" + rf"/{re.escape(PRIVATE_USER)}\b|"
+    rf"/" + "home" + rf"/{re.escape(PRIVATE_USER)}\b)"
+)
+SECRET_RE = re.compile(
+    r"(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]+ PRIVATE KEY-----)"
+)
 
 MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 ACTION_RE = re.compile(
@@ -68,6 +117,9 @@ def validate_repository(root: Path) -> list[str]:
     issues.extend(_validate_issue_forms(root))
     issues.extend(_validate_actions(root))
     issues.extend(_validate_dependabot(root))
+    issues.extend(_validate_dependency_contract(root))
+    issues.extend(_validate_python_imports(root))
+    issues.extend(_validate_hygiene(root))
     return sorted(set(issues))
 
 
@@ -205,6 +257,140 @@ def _validate_dependabot(root: Path) -> list[str]:
     for term, issue in required_terms.items():
         if term not in text:
             issues.append(issue)
+    return issues
+
+
+def _validate_dependency_contract(root: Path) -> list[str]:
+    path = root / DEPENDENCY_CONTRACT_PATH
+    if not path.is_file():
+        return [f"missing dependency contract: {DEPENDENCY_CONTRACT_PATH}"]
+    text = path.read_text(encoding="utf-8-sig")
+    required_sections = (
+        "RUNTIME DEPENDENCIES",
+        "DEV/TEST DEPENDENCIES",
+        "BUILD DEPENDENCIES",
+        "SYSTEM DEPENDENCIES",
+        "HOST/AGENT CAPABILITIES",
+        "CI-ONLY DEPENDENCIES",
+    )
+    return [
+        f"dependency contract is missing section: {section}"
+        for section in required_sections
+        if section not in text
+    ]
+
+
+def _stdlib_module_names() -> set[str]:
+    names = getattr(sys, "stdlib_module_names", None)
+    if names is not None:
+        return set(names)
+    return {
+        "argparse",
+        "ast",
+        "collections",
+        "concurrent",
+        "contextlib",
+        "dataclasses",
+        "datetime",
+        "hashlib",
+        "importlib",
+        "io",
+        "json",
+        "math",
+        "os",
+        "pathlib",
+        "re",
+        "shutil",
+        "subprocess",
+        "sys",
+        "tempfile",
+        "typing",
+        "unittest",
+        "urllib",
+        "zipfile",
+    }
+
+
+def _validate_python_imports(root: Path) -> list[str]:
+    issues: list[str] = []
+    stdlib = _stdlib_module_names()
+    local_modules = set(LOCAL_IMPORT_ROOTS)
+    script_root = root / "scripts"
+    if script_root.is_dir():
+        local_modules.update(path.stem for path in script_root.glob("*.py"))
+    for relative_root in PYTHON_CONTRACT_ROOTS:
+        source_root = root / relative_root
+        if not source_root.is_dir():
+            continue
+        for path in sorted(source_root.rglob("*.py")):
+            relative_path = path.relative_to(root).as_posix()
+            try:
+                tree = ast.parse(
+                    path.read_text(encoding="utf-8-sig"),
+                    filename=relative_path,
+                )
+            except (OSError, UnicodeError, SyntaxError) as error:
+                issues.append(f"Python source cannot be parsed: {relative_path}: {error}")
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    modules = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom):
+                    if node.level or node.module is None:
+                        continue
+                    modules = [node.module]
+                else:
+                    continue
+                for module in modules:
+                    top_level = module.split(".", 1)[0]
+                    if (
+                        top_level == "__future__"
+                        or top_level in stdlib
+                        or top_level in local_modules
+                    ):
+                        continue
+                    issues.append(
+                        f"undeclared Python import: {top_level} in {relative_path}"
+                    )
+    return issues
+
+
+def _validate_hygiene(root: Path) -> list[str]:
+    issues: list[str] = []
+    for path in root.rglob("*"):
+        relative = path.relative_to(root)
+        if ".git" in relative.parts:
+            continue
+        if any(part in HYGIENE_DIRECTORY_NAMES for part in relative.parts):
+            offending = next(
+                part for part in relative.parts if part in HYGIENE_DIRECTORY_NAMES
+            )
+            issues.append(f"repository hygiene forbids generated/cache path: {offending}")
+            continue
+        if path.is_file() and (
+            path.name in HYGIENE_FILE_NAMES or path.suffix.lower() in HYGIENE_SUFFIXES
+        ):
+            issues.append(
+                "repository hygiene forbids generated/sensitive file: "
+                f"{relative.as_posix()}"
+            )
+            continue
+        if not path.is_file() or path.suffix.lower() not in TEXT_SUFFIXES:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeError):
+            continue
+        if PRIVATE_PATH_RE.search(text):
+            issues.append(
+                "repository hygiene found a private absolute path: "
+                f"{relative.as_posix()}"
+            )
+        if SECRET_RE.search(text):
+            issues.append(
+                "repository hygiene found a secret-like value: "
+                f"{relative.as_posix()}"
+            )
     return issues
 
 

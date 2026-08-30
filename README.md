@@ -210,12 +210,15 @@ The host Agent/Harness provides capabilities; the Skill reports what each route 
 |---|---|---|
 | Visual understanding | Brief interpretation, source-aware composition, and visual inspection | The affected visual route may be PARTIAL or NOT EXECUTED |
 | Local filesystem access | Reading inputs, running local scripts, and collecting artifacts | Local generation or verification cannot run |
-| Python 3.10+ | Preflight, validation, packaging, and Python-based engine steps | The affected route fails its runtime requirement |
-| Node.js | Node-based engines and HTML tooling | Node-dependent routes are unavailable |
+| Python 3.10–3.13 | Preflight, validation, packaging, and Python-based engine steps | The affected route fails its runtime requirement |
+| Node.js 20.9+ | Node-based engines and HTML tooling | Node-dependent routes are unavailable |
 | Git | Source checkout, provenance, and upstream synchronization | Source/update workflows are limited |
 | Chromium / Playwright | Browser behavior, HTML rendering, and HTML-to-PDF QA | HTML/PDF QA is PARTIAL or NOT EXECUTED |
 | Office renderer | Rendered PPTX inspection | Native PPTX can still be produced, but Office-render evidence is unavailable |
 | Image provider | Provider-backed image generation | Provider route is NOT AVAILABLE; choose another route |
+
+The repository runtime, dependency, system-tool, and CI contract is documented in
+[docs/dependencies.md](docs/dependencies.md).
 
 ## 📦 Installation
 
