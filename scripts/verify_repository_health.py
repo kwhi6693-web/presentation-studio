@@ -45,8 +45,8 @@ REVIEWED_ACTIONS = {
         "v7.0.0",
     ),
     "actions/setup-node": (
-        "49933ea5288caeca8642d1e84afbd3f7d6820020",
-        "v4.4.0",
+        "820762786026740c76f36085b0efc47a31fe5020",
+        "v7.0.0",
     ),
     "actions/upload-artifact": (
         "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",

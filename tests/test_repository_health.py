@@ -204,7 +204,7 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             self._write_complete_repository(root)
             (root / "__pycache__").mkdir()
             (root / "__pycache__" / "bad.pyc").write_bytes(b"cache")
-            private_path = "C:" + r"\Users\ASUS\Documents\private.md"
+            private_path = f"/home/{health.PRIVATE_USER}/Documents/private.md"
             (root / "notes.md").write_text(
                 f"machine path: {private_path}\n",
                 encoding="utf-8",
@@ -286,7 +286,7 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             "  - uses: actions/setup-python@"
             "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0\n"
             "  - uses: actions/setup-node@"
-            "49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0\n",
+            "820762786026740c76f36085b0efc47a31fe5020 # v7.0.0\n",
             encoding="utf-8",
         )
         (workflows / "sync-upstreams.yml").write_text(
@@ -296,7 +296,7 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             "  - uses: actions/setup-python@"
             "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0\n"
             "  - uses: actions/setup-node@"
-            "49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0\n"
+            "820762786026740c76f36085b0efc47a31fe5020 # v7.0.0\n"
             "  - uses: actions/upload-artifact@"
             "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1\n",
             encoding="utf-8",
