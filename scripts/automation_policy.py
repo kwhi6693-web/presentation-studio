@@ -1067,6 +1067,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     release.add_argument("--event", required=True)
     release.add_argument("--head-branch", required=True)
     release.add_argument("--head-sha", required=True)
+    release.add_argument("--release-target-sha")
     provenance = subparsers.add_parser("verify-provenance")
     provenance.add_argument("--source", required=True)
     provenance.add_argument("--base-ref", required=True)
@@ -1116,9 +1117,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             output: dict = {"decision": _json_record(decision)}
             if decision.action == "release":
+                release_target_sha = args.release_target_sha or args.head_sha
+                if not COMMIT_RE.fullmatch(release_target_sha):
+                    raise PolicyError("release target commit SHA is invalid")
                 releases, tags = fetch_release_inputs(api, args.repository)
                 plan = plan_semver_release(
-                    commit_sha=args.head_sha,
+                    commit_sha=release_target_sha,
                     release_level=decision.release_level or "",
                     releases=releases,
                     tags=tags,
