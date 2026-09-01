@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 import subprocess
 import sys
@@ -11,10 +12,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 try:
-    from scripts.build_package import build_archive, build_repository_package
+    from scripts.build_package import (
+        build_archive,
+        build_repository_package,
+        compare_package_outputs,
+    )
 except ModuleNotFoundError:
     build_archive = None
     build_repository_package = None
+    compare_package_outputs = None
 
 try:
     from scripts.verify_package import verify_archive
@@ -82,6 +88,18 @@ class DeterministicPackageTests(unittest.TestCase):
         self.assertFalse(any("__pycache__" in name for name in names))
         self.assertFalse(any(name.endswith((".pyc", ".pyo")) for name in names))
 
+    def test_build_archive_rejects_symbolic_links(self) -> None:
+        link = self.skill / "linked.txt"
+        target = self.root / "outside.txt"
+        target.write_text("outside\n", encoding="utf-8")
+        try:
+            os.symlink(target, link)
+        except (OSError, NotImplementedError):
+            self.skipTest("symbolic links are unavailable in this test environment")
+
+        with self.assertRaisesRegex(ValueError, "symbolic link"):
+            build_archive(self.skill, self.root / "package.zip")
+
     def test_build_archive_excludes_generated_dependencies_and_secrets(self) -> None:
         self.assertIsNotNone(build_archive, "scripts.build_package is missing")
         (self.skill / ".git").mkdir()
@@ -121,6 +139,20 @@ class DeterministicPackageTests(unittest.TestCase):
             checksum_path.read_text(encoding="ascii"),
             f"{expected_digest}  presentation-studio.zip\n",
         )
+
+    def test_deterministic_zip_mismatch_fails_closed(self) -> None:
+        self.assertIsNotNone(compare_package_outputs, "package comparator is missing")
+        archive_a = self.root / "a.zip"
+        archive_b = self.root / "b.zip"
+        checksum_a = self.root / "a.zip.sha256"
+        checksum_b = self.root / "b.zip.sha256"
+        archive_a.write_bytes(b"first")
+        archive_b.write_bytes(b"second")
+        checksum_a.write_text("x  a.zip\n", encoding="utf-8")
+        checksum_b.write_text("y  b.zip\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
+            compare_package_outputs(archive_a, checksum_a, archive_b, checksum_b)
 
     def test_release_checksum_cli_writes_the_requested_asset(self) -> None:
         archive_path = self.root / "presentation-studio.zip"

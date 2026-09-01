@@ -1,0 +1,628 @@
+name: Auto merge trusted upstream
+
+on:
+  workflow_run:
+    workflows: ["Validate package"]
+    types: [completed]
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  merge:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: auto-merge-upstream-${{ github.repository }}-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: false
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      VALIDATED_SHA: ${{ github.event.workflow_run.head_sha }}
+      WORKFLOW_EVIDENCE: ${{ github.event.workflow_run.html_url }}
+      TRIGGERED_PULL_REQUESTS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
+    steps:
+      - name: Resolve a live same-repository automation candidate
+        id: candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pulls="$(gh api "repos/$GITHUB_REPOSITORY/commits/$VALIDATED_SHA/pulls?per_page=100")"
+          triggered="$(jq --arg sha "$VALIDATED_SHA" '
+            if type != "array" then error("workflow_run pull_requests association is missing")
+            else map(select((.number | type == "number") and (.head.sha == $sha))) end
+          ' <<< "$TRIGGERED_PULL_REQUESTS")"
+          if [[ "$(jq 'length' <<< "$triggered")" -eq 0 ]]; then
+            echo "::error::The successful Validate package run is not associated with a pull request at its exact head SHA." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          fi
+          candidates="$(jq --arg repo "$GITHUB_REPOSITORY" --arg sha "$VALIDATED_SHA" --argjson triggered "$triggered" '
+            ($triggered | map(.number)) as $triggered_numbers |
+            map(select(
+              (.state == "open")
+              and (.draft == false)
+              and (.base.ref == "main")
+              and (.head.repo.full_name == $repo)
+              and (.head.ref | startswith("automation/sync-"))
+              and (.head.sha == $sha)
+              and (.number as $number | ($triggered_numbers | index($number)) != null)
+              and ([.labels[].name] | index("automation:upstream-sync") != null)
+            ))
+          ' <<< "$pulls")"
+          candidate_count="$(jq -r 'length' <<< "$candidates")"
+          if [[ "$candidate_count" -gt 1 ]]; then
+            echo "::error::Multiple live trusted automation PRs are associated with this validation; refusing to choose one." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          fi
+          candidate="$(jq -c '.[0] // empty' <<< "$candidates")"
+          if [[ -z "$candidate" ]]; then
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No unique live same-repository automation PR is associated with the validated commit."
+            exit 0
+          fi
+          echo "eligible=true" >> "$GITHUB_OUTPUT"
+          echo "number=$(jq -r '.number' <<< "$candidate")" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$(jq -r '.head.sha' <<< "$candidate")" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$(jq -r '.head.ref' <<< "$candidate")" >> "$GITHUB_OUTPUT"
+      - name: Require trusted GitHub App credentials
+        if: steps.candidate.outputs.eligible == 'true'
+        shell: bash
+        env:
+          APP_ID: ${{ vars.UPSTREAM_SYNC_APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.UPSTREAM_SYNC_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$APP_ID" ]]; then
+            echo "::error::Trusted GitHub App ID is missing. Configure repository variable UPSTREAM_SYNC_APP_ID."
+            exit 1
+          fi
+          if [[ -z "$APP_PRIVATE_KEY" ]]; then
+            echo "::error::Trusted GitHub App private key is missing. Configure repository secret UPSTREAM_SYNC_APP_PRIVATE_KEY."
+            exit 1
+          fi
+      - name: Create repository-scoped trusted automation token
+        if: steps.candidate.outputs.eligible == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.UPSTREAM_SYNC_APP_ID }}
+          private-key: ${{ secrets.UPSTREAM_SYNC_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-metadata: read
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Checkout trusted default-branch policy
+        if: steps.candidate.outputs.eligible == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Set up policy runtime
+        if: steps.candidate.outputs.eligible == 'true'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Capture the trusted policy evaluator before untrusted checkout
+        if: steps.candidate.outputs.eligible == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          trusted_root="$RUNNER_TEMP/trusted-policy"
+          mkdir -p "$trusted_root/scripts"
+          for path in scripts/automation_policy.py scripts/upstream_sync.py scripts/upstream_sources.json; do
+            [[ -f "$path" && ! -L "$path" ]] || {
+              echo "Trusted default-branch policy input is missing or symbolic: $path" > "$RUNNER_TEMP/blocker.txt"
+              exit 1
+            }
+            cp --no-preserve=mode,ownership --no-dereference "$path" "$trusted_root/$path"
+          done
+          echo "TRUSTED_POLICY_SCRIPT=$trusted_root/scripts/automation_policy.py" >> "$GITHUB_ENV"
+      - name: Re-query live PR, checks, reviews, and reviewThreads
+        if: steps.candidate.outputs.eligible == 'true'
+        id: policy
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.candidate.outputs.number }}
+          EXPECTED_APP_LOGIN: ${{ steps.app-token.outputs.app-slug }}[bot]
+          CANDIDATE_HEAD_REF: ${{ steps.candidate.outputs.head_ref }}
+        run: |
+          set -euo pipefail
+          decision="$RUNNER_TEMP/auto-merge-decision.json"
+          set +e
+          python "$TRUSTED_POLICY_SCRIPT" evaluate-pr \
+            --repository "$GITHUB_REPOSITORY" \
+            --pr "$PR_NUMBER" \
+            --expected-app-login "$EXPECTED_APP_LOGIN" \
+            --expected-head-sha "$VALIDATED_SHA" > "$decision"
+          policy_status=$?
+          set -e
+          if ((policy_status != 0)); then
+            jq -r '.reason // "policy command failed without a structured reason"' "$decision" > "$RUNNER_TEMP/blocker.txt" || \
+              echo "policy command failed without a structured reason" > "$RUNNER_TEMP/blocker.txt"
+            echo "::error::$(head -c 2000 "$RUNNER_TEMP/blocker.txt")"
+            exit "$policy_status"
+          fi
+          action="$(jq -r '.action' "$decision")"
+          echo "action=$action" >> "$GITHUB_OUTPUT"
+          echo "reason=$(jq -r '.reason | gsub("[\r\n]"; " ")' "$decision")" >> "$GITHUB_OUTPUT"
+          echo "source=$(jq -r '.source // ""' "$decision")" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$(jq -r '.pr_number // ""' "$decision")" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$(jq -r '.head_sha // ""' "$decision")" >> "$GITHUB_OUTPUT"
+          printf 'head_ref=%s\n' "$CANDIDATE_HEAD_REF" >> "$GITHUB_OUTPUT"
+      - name: Fail closed on a trusted policy blocker
+        if: steps.policy.outputs.action == 'block'
+        shell: bash
+        env:
+          BLOCKER: ${{ steps.policy.outputs.reason }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$BLOCKER" > "$RUNNER_TEMP/blocker.txt"
+          echo "::error::$BLOCKER"
+          exit 1
+      - name: Update a trusted branch that is behind main
+        if: steps.policy.outputs.action == 'update'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ steps.policy.outputs.pr_number }}
+          EXPECTED_HEAD: ${{ steps.policy.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/update-branch" \
+            --input - <<< "$(jq -cn --arg expected_head_sha "$EXPECTED_HEAD" '{expected_head_sha:$expected_head_sha}')" > "$RUNNER_TEMP/update-branch.json"
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            live="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+            new_head="$(jq -r '.head.sha' <<< "$live")"
+            if [[ "$new_head" != "$EXPECTED_HEAD" ]]; then
+              jq -e --arg repo "$GITHUB_REPOSITORY" '
+                select((.state == "open") and (.base.ref == "main") and (.head.repo.full_name == $repo))
+              ' <<< "$live" > /dev/null
+              echo "::notice::Updated the trusted branch to $new_head; a new Validate package run is required."
+              exit 0
+            fi
+            sleep 10
+          done
+          jq -e --arg expected "$EXPECTED_HEAD" --arg repo "$GITHUB_REPOSITORY" '
+            select(
+              (.state == "open")
+              and (.base.ref == "main")
+              and (.head.repo.full_name == $repo)
+              and (.head.sha == $expected)
+            )
+          ' <<< "$live" > /dev/null
+          echo "::notice::GitHub accepted the behind-branch update; propagation is still pending. No merge was attempted; a subsequent validation run must re-evaluate the PR."
+          exit 0
+      - name: Recheck main before privileged merge gates
+        if: steps.policy.outputs.action == 'merge'
+        id: base-race
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          READ_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.policy.outputs.pr_number }}
+          EXPECTED_HEAD: ${{ steps.policy.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          auth_header="$(printf 'x-access-token:%s' "$READ_TOKEN" | base64 --wrap=0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth_header" fetch --no-tags origin main
+          main_sha="$(git rev-parse origin/main)"
+          live="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+          jq -e --arg repo "$GITHUB_REPOSITORY" --arg expected "$EXPECTED_HEAD" '
+            select(
+              (.state == "open")
+              and (.base.ref == "main")
+              and (.head.repo.full_name == $repo)
+            )
+          ' <<< "$live" > /dev/null || {
+            echo "Live PR identity changed before privileged gates." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          }
+          live_head="$(jq -r '.head.sha' <<< "$live")"
+          if [[ "$live_head" != "$EXPECTED_HEAD" ]]; then
+            echo "::notice::The trusted branch advanced before privileged gates; waiting for validation of its new head."
+            echo "continue=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          live_base="$(jq -r '.base.sha // ""' <<< "$live")"
+          if [[ -z "$live_base" ]]; then
+            echo "Live PR base SHA is missing before privileged gates." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          fi
+          if [[ "$live_base" == "$main_sha" ]]; then
+            echo "continue=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::notice::Main advanced after the initial policy decision; updating the trusted branch before any privileged gate."
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/update-branch" \
+            --input - <<< "$(jq -cn --arg expected_head_sha "$EXPECTED_HEAD" '{expected_head_sha:$expected_head_sha}')" \
+            > "$RUNNER_TEMP/pre-gate-update-branch.json"
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            live="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+            new_head="$(jq -r '.head.sha' <<< "$live")"
+            if [[ "$new_head" != "$EXPECTED_HEAD" ]]; then
+              jq -e --arg repo "$GITHUB_REPOSITORY" '
+                select((.state == "open") and (.base.ref == "main") and (.head.repo.full_name == $repo))
+              ' <<< "$live" > /dev/null || {
+                echo "Trusted PR identity changed during the behind update." > "$RUNNER_TEMP/blocker.txt"
+                exit 1
+              }
+              echo "::notice::Trusted branch updated to $new_head; a new Validate package run is required."
+              echo "continue=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 10
+          done
+          jq -e --arg expected "$EXPECTED_HEAD" --arg repo "$GITHUB_REPOSITORY" '
+            select((.state == "open") and (.base.ref == "main") and (.head.repo.full_name == $repo) and (.head.sha == $expected))
+          ' <<< "$live" > /dev/null || {
+            echo "Trusted PR state became ambiguous while waiting for the behind update." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          }
+          echo "::notice::GitHub accepted the behind update but propagation is pending; no merge was attempted."
+          echo "continue=false" >> "$GITHUB_OUTPUT"
+      - name: Checkout the exact validated trusted head
+        if: steps.policy.outputs.action == 'merge' && steps.base-race.outputs.continue == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.policy.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Reject symbolic links in the trusted head
+        if: steps.policy.outputs.action == 'merge' && steps.base-race.outputs.continue == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          symlink_path="$(find -P presentation-studio -type l -print -quit)"
+          if [[ -n "$symlink_path" ]]; then
+            echo "Symbolic links are not permitted in an auto-merge candidate: $symlink_path" > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          fi
+      - name: Re-run source scope, provenance, and repository health gates
+        id: local-gates
+        if: steps.policy.outputs.action == 'merge' && steps.base-race.outputs.continue == 'true'
+        shell: bash
+        env:
+          SOURCE: ${{ steps.policy.outputs.source }}
+        run: |
+          set -euo pipefail
+          git diff --no-renames --name-only origin/main...HEAD > "$RUNNER_TEMP/changed-paths.txt"
+          gate_status=0
+          if ! python scripts/upstream_sync.py verify-scope \
+            --source "$SOURCE" \
+            --paths-file "$RUNNER_TEMP/changed-paths.txt"; then
+            gate_status=1
+          fi
+          if ((gate_status == 0)) && ! python scripts/automation_policy.py verify-provenance \
+            --source "$SOURCE" \
+            --base-ref origin/main > "$RUNNER_TEMP/provenance.json"; then
+            gate_status=1
+          fi
+          if ((gate_status == 0)) && ! python scripts/verify_repository_health.py; then
+            gate_status=1
+          fi
+          if ((gate_status != 0)); then
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            if [[ ! -s "$RUNNER_TEMP/blocker.txt" ]]; then
+              echo "A local trusted-head verification gate failed; rechecking whether main advanced before marking manual review." > "$RUNNER_TEMP/blocker.txt"
+            fi
+            exit 0
+          fi
+          echo "passed=true" >> "$GITHUB_OUTPUT"
+      - name: Re-query live policy after a local gate race
+        if: steps.policy.outputs.action == 'merge' && steps.base-race.outputs.continue == 'true' && steps.local-gates.outputs.passed != 'true'
+        id: local-gate-recovery
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          READ_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.policy.outputs.pr_number }}
+          EXPECTED_APP_LOGIN: ${{ steps.app-token.outputs.app-slug }}[bot]
+          EXPECTED_HEAD: ${{ steps.policy.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          auth_header="$(printf 'x-access-token:%s' "$READ_TOKEN" | base64 --wrap=0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth_header" fetch --no-tags origin main
+          main_sha="$(git rev-parse origin/main)"
+          live="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+          jq -e --arg repo "$GITHUB_REPOSITORY" --arg expected "$EXPECTED_HEAD" '
+            select(
+              (.state == "open")
+              and (.base.ref == "main")
+              and (.head.repo.full_name == $repo)
+              and (.head.sha == $expected)
+            )
+          ' <<< "$live" > /dev/null || {
+            echo "Live PR identity or validated head changed while recovering a local gate failure." > "$RUNNER_TEMP/blocker.txt"
+            echo "action=ignore" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          live_base="$(jq -r '.base.sha // ""' <<< "$live")"
+          if [[ -z "$live_base" ]]; then
+            echo "Live PR base SHA is missing while recovering a local gate failure." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          fi
+          if [[ "$live_base" != "$main_sha" ]]; then
+            echo "::notice::Main advanced while local gates were running; updating the trusted branch and waiting for fresh validation."
+            echo "action=update" >> "$GITHUB_OUTPUT"
+            echo "head_sha=$EXPECTED_HEAD" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          local_failure_reason="$(<"$RUNNER_TEMP/blocker.txt")"
+          decision="$RUNNER_TEMP/local-gate-recovery.json"
+          set +e
+          python "$TRUSTED_POLICY_SCRIPT" evaluate-pr \
+            --repository "$GITHUB_REPOSITORY" \
+            --pr "$PR_NUMBER" \
+            --expected-app-login "$EXPECTED_APP_LOGIN" \
+            --expected-head-sha "$EXPECTED_HEAD" > "$decision"
+          policy_status=$?
+          set -e
+          if ((policy_status != 0)); then
+            jq -r '.reason // "policy command failed without a structured reason"' "$decision" > "$RUNNER_TEMP/blocker.txt" || \
+              echo "policy command failed without a structured reason" > "$RUNNER_TEMP/blocker.txt"
+            exit "$policy_status"
+          fi
+          recovery_action="$(jq -r '.action // "error"' "$decision")"
+          echo "action=$recovery_action" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$(jq -r '.head_sha // ""' "$decision")" >> "$GITHUB_OUTPUT"
+          if [[ "$recovery_action" == "ignore" || "$recovery_action" == "update" ]]; then
+            echo "::notice::The local gate failure was superseded by a stale or behind live PR state; no merge was attempted."
+            exit 0
+          fi
+          jq -r '.reason // "local verification failed while the live PR remained merge-eligible"' "$decision" > "$RUNNER_TEMP/blocker.txt"
+          printf '\nLocal verification failure: %s\n' "$local_failure_reason" >> "$RUNNER_TEMP/blocker.txt"
+          head -c 1600 "$RUNNER_TEMP/blocker.txt" > "$RUNNER_TEMP/blocker-truncated.txt" || true
+          mv "$RUNNER_TEMP/blocker-truncated.txt" "$RUNNER_TEMP/blocker.txt"
+          exit 1
+      - name: Update a trusted branch after a local gate behind race
+        if: steps.local-gate-recovery.outputs.action == 'update'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ steps.policy.outputs.pr_number }}
+          EXPECTED_HEAD: ${{ steps.local-gate-recovery.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/update-branch" \
+            --input - <<< "$(jq -cn --arg expected_head_sha "$EXPECTED_HEAD" '{expected_head_sha:$expected_head_sha}')" \
+            > "$RUNNER_TEMP/local-gate-update-branch.json"
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            live="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+            new_head="$(jq -r '.head.sha' <<< "$live")"
+            if [[ "$new_head" != "$EXPECTED_HEAD" ]]; then
+              jq -e --arg repo "$GITHUB_REPOSITORY" '
+                select((.state == "open") and (.base.ref == "main") and (.head.repo.full_name == $repo))
+              ' <<< "$live" > /dev/null
+              echo "::notice::Local-gate recovery updated the trusted branch to $new_head; a new Validate package run is required."
+              exit 0
+            fi
+            sleep 10
+          done
+          jq -e --arg expected "$EXPECTED_HEAD" --arg repo "$GITHUB_REPOSITORY" '
+            select((.state == "open") and (.base.ref == "main") and (.head.repo.full_name == $repo) and (.head.sha == $expected))
+          ' <<< "$live" > /dev/null
+          echo "::notice::GitHub accepted the local-gate behind update; propagation is pending and no merge was attempted."
+          exit 0
+      - name: Re-query live policy immediately before merge
+        if: steps.policy.outputs.action == 'merge' && steps.base-race.outputs.continue == 'true' && steps.local-gates.outputs.passed == 'true'
+        id: final-policy
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.policy.outputs.pr_number }}
+          EXPECTED_APP_LOGIN: ${{ steps.app-token.outputs.app-slug }}[bot]
+          EXPECTED_HEAD: ${{ steps.policy.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          set +e
+          python "$TRUSTED_POLICY_SCRIPT" evaluate-pr \
+            --repository "$GITHUB_REPOSITORY" \
+            --pr "$PR_NUMBER" \
+            --expected-app-login "$EXPECTED_APP_LOGIN" \
+            --expected-head-sha "$EXPECTED_HEAD" > "$RUNNER_TEMP/final-decision.json"
+          policy_status=$?
+          set -e
+          if ((policy_status != 0)); then
+            jq -r '.reason // "policy command failed without a structured reason"' "$RUNNER_TEMP/final-decision.json" > "$RUNNER_TEMP/blocker.txt" || \
+              echo "policy command failed without a structured reason" > "$RUNNER_TEMP/blocker.txt"
+            echo "::error::$(head -c 2000 "$RUNNER_TEMP/blocker.txt")"
+            exit "$policy_status"
+          fi
+          final_action="$(jq -r '.action // "error"' "$RUNNER_TEMP/final-decision.json")"
+          echo "action=$final_action" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$(jq -r '.head_sha // ""' "$RUNNER_TEMP/final-decision.json")" >> "$GITHUB_OUTPUT"
+          if [[ "$final_action" == "ignore" ]]; then
+            echo "::notice::The workflow validation is stale or the live PR is no longer eligible; waiting for the current validation event."
+            exit 0
+          fi
+          if [[ "$final_action" != "merge" && "$final_action" != "update" ]]; then
+            jq -r '.reason // "final live policy did not permit merge"' "$RUNNER_TEMP/final-decision.json" > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          fi
+      - name: Update a trusted branch after a final behind race
+        if: steps.final-policy.outputs.action == 'update' && steps.base-race.outputs.continue == 'true' && steps.local-gates.outputs.passed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ steps.policy.outputs.pr_number }}
+          EXPECTED_HEAD: ${{ steps.final-policy.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/update-branch" \
+            --input - <<< "$(jq -cn --arg expected_head_sha "$EXPECTED_HEAD" '{expected_head_sha:$expected_head_sha}')" > "$RUNNER_TEMP/final-update-branch.json"
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            live="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+            new_head="$(jq -r '.head.sha' <<< "$live")"
+            if [[ "$new_head" != "$EXPECTED_HEAD" ]]; then
+              jq -e --arg repo "$GITHUB_REPOSITORY" '
+                select((.state == "open") and (.base.ref == "main") and (.head.repo.full_name == $repo))
+              ' <<< "$live" > /dev/null
+              echo "::notice::Final live check found the branch behind; updated to $new_head. A new Validate package run is required."
+              exit 0
+            fi
+            sleep 10
+          done
+          jq -e --arg expected "$EXPECTED_HEAD" --arg repo "$GITHUB_REPOSITORY" '
+            select(
+              (.state == "open")
+              and (.base.ref == "main")
+              and (.head.repo.full_name == $repo)
+              and (.head.sha == $expected)
+            )
+          ' <<< "$live" > /dev/null
+          echo "::notice::GitHub accepted the final behind-race update; propagation is still pending. No merge was attempted; a subsequent validation run must re-evaluate the PR."
+          exit 0
+      - name: Squash merge and read back the destination state
+        if: steps.policy.outputs.action == 'merge' && steps.base-race.outputs.continue == 'true' && steps.local-gates.outputs.passed == 'true' && steps.final-policy.outputs.action == 'merge'
+        id: merge
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ steps.policy.outputs.pr_number }}
+          EXPECTED_HEAD: ${{ steps.final-policy.outputs.head_sha }}
+          HEAD_REF: ${{ steps.policy.outputs.head_ref }}
+        run: |
+          set -euo pipefail
+          merge_payload="$(jq -cn --arg sha "$EXPECTED_HEAD" '{sha:$sha,merge_method:"squash"}')"
+          set +e
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/pulls/${PR_NUMBER}/merge" \
+            --input - <<< "$merge_payload" > "$RUNNER_TEMP/merge.json" 2> "$RUNNER_TEMP/merge.err"
+          merge_status=$?
+          set -e
+          if ((merge_status != 0)); then
+            # Main can advance in the final API window.  Re-query the live PR
+            # using the App token and perform the same safe behind update used
+            # earlier instead of turning a confirmed behind response into
+            # manual review.  No PR-head code is executed in this recovery.
+            live="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+            jq -e --arg repo "$GITHUB_REPOSITORY" '
+              select((.state == "open") and (.base.ref == "main") and (.head.repo.full_name == $repo))
+            ' <<< "$live" > /dev/null || {
+              if [[ "$(jq -r '.state // ""' <<< "$live")" == "closed" ]]; then
+                if [[ "$(jq -r '.merged // false' <<< "$live")" == "true" ]]; then
+                  merge_sha="$(jq -er '.merge_commit_sha' <<< "$live")"
+                  jq -cn --arg sha "$merge_sha" '{merged:true,sha:$sha}' > "$RUNNER_TEMP/merge.json"
+                  echo "::notice::The merge request response was interrupted after GitHub merged the PR; continuing with merge and branch-deletion readback."
+                else
+                  echo "::notice::Merge race resolved the PR while the merge request was in flight without merging it."
+                  exit 0
+                fi
+              else
+                echo "Live PR identity changed after the merge request failed." > "$RUNNER_TEMP/blocker.txt"
+                cat "$RUNNER_TEMP/merge.err" >> "$RUNNER_TEMP/blocker.txt" || true
+                exit 1
+              fi
+            }
+            if [[ ! -s "$RUNNER_TEMP/merge.json" ]]; then
+              live_head="$(jq -r '.head.sha // ""' <<< "$live")"
+              if [[ "$live_head" != "$EXPECTED_HEAD" ]]; then
+                echo "::notice::Merge became stale because validation evidence is no longer current; waiting for validation of the new head."
+                exit 0
+              fi
+              live_state="$(jq -r '.mergeable_state // "unknown"' <<< "$live")"
+              if [[ "$live_state" != "behind" ]]; then
+                echo "Merge API failed while live mergeable_state is '$live_state'." > "$RUNNER_TEMP/blocker.txt"
+                cat "$RUNNER_TEMP/merge.err" >> "$RUNNER_TEMP/blocker.txt" || true
+                exit 1
+              fi
+              gh api --method PUT "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/update-branch" \
+                --input - <<< "$(jq -cn --arg expected_head_sha "$EXPECTED_HEAD" '{expected_head_sha:$expected_head_sha}')" \
+                > "$RUNNER_TEMP/merge-race-update.json"
+              for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+                live="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+                new_head="$(jq -r '.head.sha' <<< "$live")"
+                if [[ "$new_head" != "$EXPECTED_HEAD" ]]; then
+                  jq -e --arg repo "$GITHUB_REPOSITORY" '
+                    select((.state == "open") and (.base.ref == "main") and (.head.repo.full_name == $repo))
+                  ' <<< "$live" > /dev/null || {
+                    echo "Trusted PR identity changed during the merge-race update." > "$RUNNER_TEMP/blocker.txt"
+                    exit 1
+                  }
+                  echo "::notice::Merge-race update advanced the branch to $new_head; a new Validate package run is required."
+                  exit 0
+                fi
+                sleep 10
+              done
+              jq -e --arg expected "$EXPECTED_HEAD" --arg repo "$GITHUB_REPOSITORY" '
+                select((.state == "open") and (.base.ref == "main") and (.head.repo.full_name == $repo) and (.head.sha == $expected))
+              ' <<< "$live" > /dev/null || {
+                echo "Trusted PR state became ambiguous while waiting for the merge-race update." > "$RUNNER_TEMP/blocker.txt"
+                exit 1
+              }
+              echo "::notice::Merge-race branch update was accepted but propagation is pending; no merge was attempted."
+              exit 0
+            fi
+          fi
+          merge_sha="$(jq -er 'select(.merged == true) | .sha' "$RUNNER_TEMP/merge.json")"
+          readback="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+          jq -e --arg sha "$merge_sha" '
+            select((.merged == true) and (.state == "closed") and (.merge_commit_sha == $sha))
+          ' <<< "$readback" > /dev/null
+          echo "merged=true" >> "$GITHUB_OUTPUT"
+          ENCODED_BRANCH="$(jq -rn --arg value "$HEAD_REF" '$value | @uri')"
+          ref_err="$RUNNER_TEMP/branch-ref.err"
+          if ref_json="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/${ENCODED_BRANCH}" 2> "$ref_err")"; then
+            jq -e --arg expected "$EXPECTED_HEAD" '
+              select(.object.sha == $expected)
+            ' <<< "$ref_json" > /dev/null || {
+              echo "Automation branch changed after merge; refusing to delete an unrelated ref." > "$RUNNER_TEMP/blocker.txt"
+              exit 1
+            }
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/${ENCODED_BRANCH}"
+          else
+            grep -q "HTTP 404" "$ref_err" || {
+              echo "Automation branch lookup before deletion was ambiguous." > "$RUNNER_TEMP/blocker.txt"
+              exit 1
+            }
+            echo "::notice::Automation branch was already deleted after merge."
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/${ENCODED_BRANCH}" > /dev/null 2> "$RUNNER_TEMP/ref-readback.err"; then
+            echo "Automation branch still exists after deletion." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          fi
+          grep -q "HTTP 404" "$RUNNER_TEMP/ref-readback.err" || {
+            echo "Automation branch deletion readback was ambiguous." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          }
+      - name: Add or update fail-closed manual-review evidence
+        if: failure() && steps.candidate.outputs.eligible == 'true' && steps.app-token.outputs.token != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ steps.candidate.outputs.number }}
+        run: |
+          set -euo pipefail
+          marker="<!-- presentation-studio-auto-merge-blocker -->"
+          reason="Auto-merge failed closed. Inspect the workflow evidence for the failing gate."
+          if [[ -s "$RUNNER_TEMP/blocker.txt" ]]; then
+            reason="$(head -c 2000 "$RUNNER_TEMP/blocker.txt")"
+          fi
+          body="$marker
+
+          **manual-review required**
+
+          Blocker: $reason
+
+          Workflow evidence: $WORKFLOW_EVIDENCE"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" \
+            --input - <<< '{"labels":["manual-review"]}' > /dev/null
+          comments="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100")"
+          comment_id="$(jq -r --arg marker "$marker" 'map(select(.body | contains($marker))) | first | .id // empty' <<< "$comments")"
+          if [[ -n "$comment_id" ]]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" \
+              --input - <<< "$(jq -cn --arg body "$body" '{body:$body}')" > /dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+              --input - <<< "$(jq -cn --arg body "$body" '{body:$body}')" > /dev/null
+          fi
+          readback="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER")"
+          jq -e 'select([.labels[].name] | index("manual-review") != null)' <<< "$readback" > /dev/null

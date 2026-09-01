@@ -107,7 +107,7 @@ python scripts/verify_package.py \
 
 ## Event relay
 
-The upstream release relay calls the repository dispatch endpoint with event type `upstream_release`. Store the target repository token only in the relay platform; do not commit it to this repository. The target workflow uses the repository-scoped `GITHUB_TOKEN` and declares `contents: write` plus `pull-requests: write`, which are required to push an isolated source branch and open or update its pull request. It cannot bypass the `main` ruleset.
+The upstream release relay calls the repository dispatch endpoint with event type `upstream_release`. Store the relay credential only in the relay platform; do not commit it to this repository. Branch and pull-request mutations use a short-lived installation token from the dedicated trusted GitHub App, with only Metadata read, Contents read/write, and Pull requests read/write. The workflow's repository-scoped `GITHUB_TOKEN` is read-only. Neither identity can bypass the `main` ruleset. See [AUTOMATION.md](AUTOMATION.md) for bootstrap, classification, merge, release, and recovery details.
 
 Example event body:
 

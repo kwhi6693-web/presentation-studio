@@ -108,6 +108,33 @@ class RepositoryContractTests(unittest.TestCase):
             with self.subTest(dependency_section=term):
                 self.assertIn(term, dependencies_text)
 
+    def test_autonomous_automation_maintainer_contract_is_documented(self) -> None:
+        automation = ROOT / "docs" / "AUTOMATION.md"
+        self.assertTrue(automation.is_file(), "Autonomous automation guide is missing")
+        text = automation.read_text(encoding="utf-8-sig")
+        for term in (
+            "UPSTREAM_SYNC_APP_ID",
+            "UPSTREAM_SYNC_APP_PRIVATE_KEY",
+            "Metadata: read",
+            "Contents: read and write",
+            "Pull requests: read and write",
+            "automation:upstream-sync",
+            "release:patch",
+            "manual-review",
+            "workflow_run",
+            "behind",
+            "squash",
+            "main validation",
+            "semantic version",
+            "presentation-studio.zip.sha256",
+            "GitHub Actions evidence",
+            "PR #21",
+            "action_required",
+            "rotate",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, text)
+
     def test_three_readmes_are_standalone_and_separate_designed_from_validated(self) -> None:
         for relative_path, terms in README_EXPECTATIONS.items():
             text = (ROOT / relative_path).read_text(encoding="utf-8-sig")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -104,7 +105,7 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
 
             self.assertIn(
                 "reviewed action usage count mismatch: "
-                "actions/setup-python expected 2 got 1",
+                "actions/setup-python expected 4 got 3",
                 issues,
             )
 
@@ -215,6 +216,23 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             self.assertIn("repository hygiene forbids generated/cache path: __pycache__", issues)
             self.assertIn("repository hygiene found a private absolute path: notes.md", issues)
 
+    @unittest.skipIf(health is None, "repository health verifier is missing")
+    def test_repository_hygiene_rejects_symbolic_links(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_complete_repository(root)
+            target = root / "outside.txt"
+            target.write_text("outside\n", encoding="utf-8")
+            link = root / "linked.txt"
+            try:
+                os.symlink(target, link)
+            except (OSError, NotImplementedError):
+                self.skipTest("symbolic links are unavailable in this test environment")
+
+            issues = health.validate_repository(root)
+
+            self.assertIn("repository hygiene forbids symbolic link: linked.txt", issues)
+
     def _write_complete_repository(self, root: Path) -> None:
         (root / "docs").mkdir(parents=True)
         (root / "docs" / "guide.md").write_text("# Guide\n", encoding="utf-8")
@@ -298,7 +316,33 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             "  - uses: actions/setup-node@"
             "820762786026740c76f36085b0efc47a31fe5020 # v7.0.0\n"
             "  - uses: actions/upload-artifact@"
-            "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1\n",
+            "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1\n"
+            "  - uses: actions/create-github-app-token@"
+            "bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0\n",
+            encoding="utf-8",
+        )
+        (workflows / "auto-merge-upstream.yml").write_text(
+            "steps:\n"
+            "  - uses: actions/checkout@"
+            "3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n"
+            "  - uses: actions/checkout@"
+            "3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n"
+            "  - uses: actions/setup-python@"
+            "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0\n"
+            "  - uses: actions/create-github-app-token@"
+            "bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0\n",
+            encoding="utf-8",
+        )
+        (workflows / "auto-release.yml").write_text(
+            "steps:\n"
+            "  - uses: actions/checkout@"
+            "3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n"
+            "  - uses: actions/setup-python@"
+            "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0\n"
+            "  - uses: actions/setup-node@"
+            "820762786026740c76f36085b0efc47a31fe5020 # v7.0.0\n"
+            "  - uses: actions/create-github-app-token@"
+            "bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0\n",
             encoding="utf-8",
         )
         (root / ".github" / "dependabot.yml").write_text(

@@ -52,13 +52,18 @@ REVIEWED_ACTIONS = {
         "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
         "v7.0.1",
     ),
+    "actions/create-github-app-token": (
+        "bcd2ba49218906704ab6c1aa796996da409d3eb1",
+        "v3.2.0",
+    ),
 }
 
 EXPECTED_ACTION_COUNTS = {
-    "actions/checkout": 2,
-    "actions/setup-python": 2,
-    "actions/setup-node": 2,
+    "actions/checkout": 5,
+    "actions/setup-python": 4,
+    "actions/setup-node": 3,
     "actions/upload-artifact": 1,
+    "actions/create-github-app-token": 3,
 }
 
 PYTHON_CONTRACT_ROOTS = (
@@ -360,6 +365,12 @@ def _validate_hygiene(root: Path) -> list[str]:
     for path in root.rglob("*"):
         relative = path.relative_to(root)
         if ".git" in relative.parts:
+            continue
+        if path.is_symlink():
+            issues.append(
+                "repository hygiene forbids symbolic link: "
+                f"{relative.as_posix()}"
+            )
             continue
         if any(part in HYGIENE_DIRECTORY_NAMES for part in relative.parts):
             offending = next(

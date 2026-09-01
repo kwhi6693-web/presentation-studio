@@ -8,8 +8,7 @@ on:
     - cron: "17 * * * *"
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   synchronize:
@@ -30,6 +29,75 @@ jobs:
       SOURCE: ${{ matrix.source }}
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
+      - name: Require trusted GitHub App credentials
+        shell: bash
+        env:
+          APP_ID: ${{ vars.UPSTREAM_SYNC_APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.UPSTREAM_SYNC_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$APP_ID" ]]; then
+            echo "::error::Trusted GitHub App ID is missing. Configure repository variable UPSTREAM_SYNC_APP_ID."
+            exit 1
+          fi
+          if [[ -z "$APP_PRIVATE_KEY" ]]; then
+            echo "::error::Trusted GitHub App private key is missing. Configure repository secret UPSTREAM_SYNC_APP_PRIVATE_KEY."
+            exit 1
+          fi
+      - name: Create repository-scoped trusted automation token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.UPSTREAM_SYNC_APP_ID }}
+          private-key: ${{ secrets.UPSTREAM_SYNC_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-metadata: read
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Resolve trusted App bot commit identity
+        id: app-user
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          set -euo pipefail
+          APP_LOGIN="${APP_SLUG}[bot]"
+          APP_USER_ID="$(gh api "/users/${APP_SLUG}%5Bbot%5D" --jq '.id')"
+          [[ "$APP_USER_ID" =~ ^[0-9]+$ ]] || {
+            echo "Trusted GitHub App bot user ID is missing or invalid for deterministic commit attribution." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          }
+          echo "login=$APP_LOGIN" >> "$GITHUB_OUTPUT"
+          echo "email=${APP_USER_ID}+${APP_LOGIN}@users.noreply.github.com" >> "$GITHUB_OUTPUT"
+      - name: Verify trusted automation labels are provisioned (idempotent ensure)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          for label in automation:upstream-sync release:patch release:minor release:major manual-review; do
+            encoded_label="$(jq -rn --arg label "$label" '$label | @uri')"
+            actual_label="$(gh api "repos/$GITHUB_REPOSITORY/labels/$encoded_label" --jq '.name' 2> "$RUNNER_TEMP/label-read.err" || true)"
+            if [[ -z "$actual_label" ]]; then
+              color="1D76DB"
+              case "$label" in
+                release:patch) color="0E8A16" ;;
+                release:minor) color="5319E7" ;;
+                release:major) color="B60205" ;;
+                manual-review) color="FBCA04" ;;
+              esac
+              gh api --method POST "repos/$GITHUB_REPOSITORY/labels" \
+                -f "name=$label" -f "color=$color" -f "description=Presentation Studio automation control label" \
+                > /dev/null 2> "$RUNNER_TEMP/label-create.err" || true
+              actual_label="$(gh api "repos/$GITHUB_REPOSITORY/labels/$encoded_label" --jq '.name' 2> "$RUNNER_TEMP/label-readback.err" || true)"
+            fi
+            [[ "$actual_label" == "$label" ]] || {
+              echo "::error::Required repository label is missing or mismatched: $label"
+              cat "$RUNNER_TEMP/label-read.err" "$RUNNER_TEMP/label-create.err" "$RUNNER_TEMP/label-readback.err" 2> /dev/null || true
+              exit 1
+            }
+          done
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -62,18 +130,26 @@ jobs:
         if: steps.release.outputs.update == 'true'
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_LOGIN: ${{ steps.app-user.outputs.login }}
+          APP_EMAIL: ${{ steps.app-user.outputs.email }}
         run: |
           set -euo pipefail
           selection="$(
             gh pr list --state open --base main --limit 100 \
-              --json headRefName,url,isCrossRepository \
-              | jq --arg source "$SOURCE" 'map(select((.isCrossRepository == false) and (.headRefName | startswith(("automation/sync-" + $source + "-"))))) | first // {}'
+              --json headRefName,url,isCrossRepository,author,labels \
+              | jq --arg source "$SOURCE" --arg app "$APP_LOGIN" '
+                  map(select(
+                    (.isCrossRepository == false)
+                    and (.author.login == $app)
+                    and ([.labels[].name] | index("automation:upstream-sync") != null)
+                    and (.headRefName | startswith(("automation/sync-" + $source + "-")))
+                  )) | if length == 0 then {} elif length == 1 then .[0] else error("multiple trusted automation PRs found for this source") end'
           )"
           sync_branch="$(jq -r '.headRefName // ""' <<< "$selection")"
           existing_pr="$(jq -r '.url // ""' <<< "$selection")"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "$APP_LOGIN"
+          git config user.email "$APP_EMAIL"
           if [[ -n "$sync_branch" ]]; then
             auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 --wrap=0)"
             git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth_header" fetch origin "$sync_branch"
@@ -138,7 +214,7 @@ jobs:
         run: |
           set -euo pipefail
           sync_dir="$RUNNER_TEMP/presentation-studio-upstream/$SOURCE"
-          git diff --name-only origin/main > "$sync_dir/changed-paths.txt"
+          git diff --no-renames --name-only origin/main > "$sync_dir/changed-paths.txt"
           python scripts/upstream_sync.py verify-scope --source "$SOURCE" --paths-file "$sync_dir/changed-paths.txt"
       - name: Stage only reported source paths
         id: changes
@@ -153,7 +229,7 @@ jobs:
             exit 1
           fi
           git add -- "${staging_paths[@]}"
-          git diff --cached --name-only > "$sync_dir/staged-paths.txt"
+          git diff --cached --no-renames --name-only > "$sync_dir/staged-paths.txt"
           python scripts/upstream_sync.py verify-scope --source "$SOURCE" --paths-file "$sync_dir/staged-paths.txt"
           git diff --cached --check
           if git diff --cached --quiet; then
@@ -192,15 +268,17 @@ jobs:
         if: steps.changes.outputs.changed == 'true'
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_LOGIN: ${{ steps.app-user.outputs.login }}
+          APP_EMAIL: ${{ steps.app-user.outputs.email }}
           SYNC_BRANCH: ${{ steps.sync_pr.outputs.branch }}
           EXISTING_PR: ${{ steps.sync_pr.outputs.url }}
           PR_TITLE: ${{ steps.pr_body.outputs.title }}
           PR_BODY: ${{ steps.pr_body.outputs.body }}
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "$APP_LOGIN"
+          git config user.email "$APP_EMAIL"
           git commit -m "$PR_TITLE"
           auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 --wrap=0)"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth_header" push --set-upstream origin "$SYNC_BRANCH"
@@ -209,14 +287,35 @@ jobs:
             jq -e --arg branch "$SYNC_BRANCH" \
               'select((.state == "OPEN") and (.isCrossRepository == false) and (.headRefName == $branch))' \
               <<< "$current_pr" > /dev/null
-            gh pr edit "$EXISTING_PR" --title "$PR_TITLE" --body-file "$PR_BODY"
+            gh pr edit "$EXISTING_PR" \
+              --title "$PR_TITLE" \
+              --body-file "$PR_BODY" \
+              --add-label "automation:upstream-sync" \
+              --add-label "release:patch"
+            pr_url="$EXISTING_PR"
           else
-            gh pr create \
+            pr_url="$(gh pr create \
               --base main \
               --head "$SYNC_BRANCH" \
               --title "$PR_TITLE" \
-              --body-file "$PR_BODY"
+              --body-file "$PR_BODY" \
+              --label "automation:upstream-sync" \
+              --label "release:patch")"
           fi
+          readback="$(gh pr view "$pr_url" --json state,baseRefName,headRefName,isCrossRepository,isDraft,author,labels)"
+          jq -e \
+            --arg branch "$SYNC_BRANCH" \
+            --arg app "$APP_LOGIN" \
+            'select(
+              (.state == "OPEN")
+              and (.baseRefName == "main")
+              and (.headRefName == $branch)
+              and (.isCrossRepository == false)
+              and (.isDraft == false)
+              and (.author.login == $app)
+              and ([.labels[].name] | index("automation:upstream-sync") != null)
+              and ([.labels[].name] | index("release:patch") != null)
+            )' <<< "$readback" > /dev/null
       - name: Upload synchronization report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
