@@ -182,11 +182,11 @@ Actions run. Correct the issue on the automation branch through the trusted sync
 workflow or handle it as a normal maintainer-reviewed change. Do not remove the label
 and manually rerun with weaker checks.
 
-The legacy open automation PR #21 was created with `GITHUB_TOKEN`, has no trusted App
-identity labels, and its validation is in `action_required`. It must not be inherited
-or merged by this framework. After the App bootstrap succeeds, close PR #21 and run a
-fresh source synchronization so the GitHub App creates a new trusted PR from current
-upstream state.
+The legacy automation PR #21 was created with `GITHUB_TOKEN`, had no trusted App
+identity labels, and its validation was in `action_required`. It was closed rather than
+inherited by this framework. After the App bootstrap succeeds, run a fresh source
+synchronization so the GitHub App creates a new trusted PR from current upstream state;
+do not reopen or merge the legacy PR.
 
 ## Maintainer evidence checklist
 
