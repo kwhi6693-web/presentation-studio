@@ -27,14 +27,17 @@ jobs:
     timeout-minutes: 45
     env:
       PYTHONDONTWRITEBYTECODE: "1"
-      RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+      # A release target must be the current validated default-branch commit.
+      # The triggering validation SHA remains the trusted upstream candidate.
+      RELEASE_SHA: ${{ github.sha }}
+      CANDIDATE_SHA: ${{ github.event.workflow_run.head_sha }}
       WORKFLOW_EVIDENCE: ${{ github.event.workflow_run.html_url }}
     steps:
       - name: Checkout the exact validated main commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-          fetch-depth: 2
+          ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Reject symbolic links in the validated main tree
         shell: bash
@@ -59,8 +62,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          pulls="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_SHA/pulls?per_page=100")"
-          candidates="$(jq --arg repo "$GITHUB_REPOSITORY" --arg sha "$RELEASE_SHA" '
+          git merge-base --is-ancestor "$CANDIDATE_SHA" "$RELEASE_SHA" || {
+            echo "Trusted upstream candidate is not an ancestor of the current validated main target." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          }
+          target_checks="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_SHA/check-runs?per_page=100")"
+          jq -e 'any(.check_runs[]?; .name == "verify" and .conclusion == "success")' <<< "$target_checks" > /dev/null || {
+            echo "Current release target does not have a successful required verify check." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          }
+          pulls="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CANDIDATE_SHA/pulls?per_page=100")"
+          candidates="$(jq --arg repo "$GITHUB_REPOSITORY" --arg sha "$CANDIDATE_SHA" '
             map(select(
               (.merged_at != null)
               and (.merge_commit_sha == $sha)
@@ -132,7 +144,7 @@ jobs:
               --conclusion "$RUN_CONCLUSION" \
               --event "$RUN_EVENT" \
               --head-branch "$RUN_HEAD_BRANCH" \
-              --head-sha "$RELEASE_SHA" > "$decision"
+              --head-sha "$CANDIDATE_SHA" > "$decision"
             policy_status=$?
             set -e
             if ((policy_status == 0)); then
@@ -174,8 +186,8 @@ jobs:
           SOURCE: ${{ steps.policy.outputs.source }}
         run: |
           set -euo pipefail
-          base_sha="$(git rev-parse "$RELEASE_SHA^")"
-          git diff --no-renames --name-only "$base_sha" "$RELEASE_SHA" > "$RUNNER_TEMP/release-changed-paths.txt"
+          base_sha="$(git rev-parse "$CANDIDATE_SHA^")"
+          git diff --no-renames --name-only "$base_sha" "$CANDIDATE_SHA" > "$RUNNER_TEMP/release-changed-paths.txt"
           python scripts/upstream_sync.py verify-scope --source "$SOURCE" --paths-file "$RUNNER_TEMP/release-changed-paths.txt"
           python scripts/automation_policy.py verify-provenance \
             --source "$SOURCE" \
@@ -266,7 +278,7 @@ jobs:
               --conclusion "success" \
               --event "push" \
               --head-branch "main" \
-              --head-sha "$RELEASE_SHA" > "$RUNNER_TEMP/release-recheck.json"
+              --head-sha "$CANDIDATE_SHA" > "$RUNNER_TEMP/release-recheck.json"
             policy_status=$?
             set -e
             if ((policy_status == 0)); then
