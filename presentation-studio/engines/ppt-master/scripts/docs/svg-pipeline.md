@@ -885,7 +885,7 @@ Behavior:
 - Native export writes to a temporary file first and publishes the requested PPTX only after conversion succeeds. A failed conversion does not replace the main output file.
 - `--conversion-trace` without a path writes `validation/<output_stem>.trace.json`. `--conversion-trace <path>` respects the explicit destination; relative paths are resolved from the project root, so `exports/<name>.trace.json` remains available when intentionally requested.
 - Formal default and `--quick-generate` release export compute the exact SVG source fingerprint and refuse a missing, unreadable, unsupported, non-final, blocking, stale, or unverifiable final quality report before PPTX creation. A project without `validation/svg_quality_report.json` exits nonzero with the `not-provided` gate status; run the final checker against its current `svg_output/` first. An explicit non-`output` `--source` remains outside this release gate. Dangerous compatibility export also stays outside it even when reading the default `svg_output/`: it automatically writes a conversion trace, marks postflight `passed-with-warnings`, and records its normalization count; it never claims that the source passed the normal authoring quality gate.
-- The final quality report carries an informational `carrier_receipt` aggregate plus each page's `files[].info.carrier_receipt`: actual text/image/icon counts, SVG geometry, native preset names, marker use, native Chart/Table/Formula markers, and largest image-frame share. The terminal prints only the compact aggregate. These facts never affect exit status, create coverage quotas, or score design; the active Generate profile compares them with its retained page decisions before export.
+- The final quality report carries an informational `carrier_receipt` aggregate plus each page's `files[].info.carrier_receipt`: actual text/image/icon counts, SVG geometry, native preset names, marker use, native Chart/Table/Formula markers, largest image-frame share, and effect use. `effects.inline_emphasis_runs` counts `<tspan>` elements inside `<text>` with no `x`/`y`/`dx`/`dy` that set `fill`, `font-weight`, `font-size`, `font-style`, `text-decoration`, or `letter-spacing`; `effects.gradient_uses` counts visible fill/stroke references that resolve to same-document linear/radial gradients; `effects.filter_uses` counts visible filter references that resolve to same-document filters; and `effects.text_effects` counts visible `<text>`/`<tspan>` elements with gradient/pattern paint, a filter, or a non-`none` stroke. Content inside `defs`, `clipPath`, `mask`, `pattern`, `marker`, or `symbol` is excluded. The terminal prints only the compact aggregate. These facts never affect exit status, create coverage quotas, or score design; the active Generate profile compares them with its retained page decisions before export.
 - After publication, native export writes `validation/<output_stem>.report.json`. The report distinguishes authored Slides from internal Layout definitions, reruns ZIP integrity and published Slide-count checks, records slide/layout/master/notes part counts, labels relationship/structured/transition/animation validation as enforced at build time, links the final SVG quality report only when its SHA-256 source fingerprint matches the exact export inputs, and surfaces stale/unverified gates, unresolved template tokens, generic-only font stacks, and external image references. A matching final quality report with introduced warnings yields `passed-with-warnings` and a `quality_introduced_warnings=<N>` receipt instead of a clean `passed` claim.
 - By default, a successful command also prints a compact receipt instead of requiring a report read: `[POSTFLIGHT] status=<...> quality_gate=<...> slides=<N> warning_categories=<N>`, followed by one compact line per warning category and the `[PPTX]` / `[REPORT]` paths. Resource-warning lines carry counts; a non-passing quality gate carries its status. Routine agents use this receipt and do not load either complete validation JSON into model context. Full reports remain cold audit artifacts; failure investigation and explicit audits extract only the required fields. `--quiet` keeps suppressing successful-run output.
 - Before publishing structured template output, export reopens the temporary PPTX and validates the Slide → Layout → Master graph and registrations, Layout identity, placeholder identity, reusable bounds, and prompt/level-one sizes. A mismatch aborts publication. Flat release instead validates its single referenced Master/Layout shell and exact date/footer/slide-number hook roster before packaging.
@@ -939,6 +939,53 @@ Dependency:
 pip install python-pptx
 ```
 
+### Structured export mechanics
+
+Checker and exporter behavior behind [`pptx-structure-interface.md`](../../references/pptx-structure-interface.md) §2.
+
+**Master text styles**: the effective `title` anchor maps to every `a:defRPr@sz` in Master `p:titleStyle`. Level 1 in `p:bodyStyle` and `p:otherStyle` uses the `body` anchor; levels 2–9 descend deterministically from `15/16` through `8/16` of that size, rounded to 0.5 pt and floored at the smaller of 8 pt or the body size. Only `p:txStyles//a:defRPr@sz` changes; indentation, bullets, margins, paragraph settings, and direct run sizes on generated slides are untouched. Default reads the anchors from `spec_lock.md`; missing `title` / `body` rows fail flat or structured export. Structured Quick infers anchors from semantic slot carriers with deterministic fallbacks; flat Quick keeps stock defaults.
+
+| Master style | Effective source | XML field changed |
+|---|---|---|
+| `p:titleStyle` | title anchor | every `a:defRPr@sz` |
+| `p:bodyStyle` | body anchor | level 1 plus derived level 2–9 `a:defRPr@sz` |
+| `p:otherStyle` | body anchor | level 1 plus derived level 2–9 `a:defRPr@sz` |
+
+**Layout level-one text default**: for every text-bearing placeholder whose first prototype run has a direct `a:rPr@sz`, export copies that size to the generated Layout prompt run and `p:txBody/a:lstStyle/a:lvl1pPr/a:defRPr@sz`; Slide direct runs and Layout levels 2–9 are not rewritten.
+
+**Placeholder identity**: export writes the semantic type on both the Layout and Slide carrier (except `obj`, already the OOXML default). Date, footer, and slide-number placeholders enable the matching Layout `p:hf` flags; a date placeholder also gets a `datetimeFigureOut` field in the Layout while the Slide keeps its authored date text. An omitted `p:ph@idx` has effective value `0`, so an omitted-index title reserves `0`; every other indexed placeholder on that Layout uses a unique OOXML UInt32 index. An imported title with an explicit index keeps that exact index.
+
+**Text carriers**: a multiline text placeholder stays one native text frame under default export and `--reflow-text`; `--no-merge` cannot supply several line shapes as one placeholder. A whitespace-only marked carrier materializes one invisible U+200B run so it still becomes a native text shape. On a materialized mirror, an imported text carrier may keep the source shape's positive `data-pptx-frame="x y width height"`; that frame owns the Slide carrier `a:xfrm` and the converter reconstructs text-body insets from the visible anchor/baseline instead of shrinking to glyph bounds, while `data-pptx-bounds` remains the reusable Layout default.
+
+**Visibility attributes**: `data-pptx-show-master-shapes` writes the Layout's `p:sldLayout@showMasterSp` and must repeat the same value on every SVG sharing that Layout key; `data-pptx-show-inherited-shapes` writes this Slide's `p:sld@showMasterSp`. Both accept only exact lowercase `true` / `false`; omission means `true`.
+
+**Static structure consistency**: the same master element ids on every slide and the same layout element ids on every slide sharing a layout must compile to identical OOXML within that group. Static objects may carry shapes, text, or images; non-image/external relationships are rejected. Interleaved layers fail: paint order is Master background, Layout background, optional Slide background, remaining Master atoms, remaining Layout atoms, then slot groups and Slide-local content. Structured export narrows background ownership to a direct full-canvas solid `<rect>` and disables the generic conversion-level promotion; an unmarked full-canvas solid rect in the background plane is treated as Slide scope.
+
+**Final-package read-back gate**: before publishing, export reopens the temporary structured PPTX and verifies that each Slide targets exactly one Layout, one Layout key resolves to one part, distinct keys do not collapse, and every declared Layout—including unused ones—is registered through its Master and the Presentation; that physical Slide/Layout/Master part rosters, content-type overrides, and registrations are exact; the Layout picker name, Master picker identity, placeholder type and effective index, `p:hf` flags, design-zone frame, prompt size, and level-one default size; every owned `p:bg` as an exact zero-or-one payload against the pre-promotion result (preserving the base Master background when none replaces it); the exact top-level shape-name roster and order of every Slide, Layout, and Master; carrier-bound slot bindings, ordinary composite visible carriers, hidden composite proxies, and zero-slot Layouts with no placeholder. Later Slides may keep different Slide-local geometry; only the reusable Layout frame is checked. Any mismatch fails export without replacing the requested output.
+
+### Native formula compiler
+
+Behind [`native-formula.md`](../../references/native-formula.md) §3. The compiler implements every explicitly named LaTeX-to-OMML input in Microsoft's documented [Microsoft 365 LaTeX profile](https://learn.microsoft.com/en-us/office/math/latex) (Windows 2606 / Mac 16.110) and [mhchem profile](https://learn.microsoft.com/en-us/office/math/latex.mhchem) (Windows 2605 / Mac 16.109): outer delimiters, listed symbols and relations, fractions and binomials, roots, right and left scripts, delimiters and `\middle`, accents, bars and group characters, limits, all 21 listed n-ary operators, standard/custom functions, matrices and equation-array environments, CD diagrams, fonts and local colors, boxes and phantoms, spacing, global 0–9 argument macros, and the documented `\ce` chemistry grammar. Microsoft's open-ended "etc." wording defines no undisclosed names; only explicitly named commands and retained project aliases are contractual. The closed command tables in `svg_to_pptx/native_objects/formula_profile.py` are the executable vocabulary; the compiler facade and OMML structure gate are `formula_compiler.py` and `formula_omml.py`, with `formula.py`, `formula_ast.py`, `formula_parser.py`, `formula_run_properties.py`, and `inline_formula.py` alongside.
+
+**Normalization**: `\dfrac` / `\tfrac`, `\dbinom` / `\tbinom`, and continued-fraction alignment normalize to the corresponding OMML structure; explicit big-delimiter grades become auto-sizing delimiters; `\mathscr` → `\mathcal`; `smallmatrix` → `matrix`; array columns become centered; style/size commands and equation tags are accepted but not stored. Color is stored in generated formula runs and structural control properties; `\boldsymbol` / `\bm` applies bold-italic to structural control glyphs.
+
+**Fail-closed**: unknown commands or environments, Microsoft's explicitly unsupported commands, unsupported mhchem arrows, unescaped `%` comments, invalid macros, and resource-limit overflow block conversion — stricter than Microsoft 365's literal-text passthrough and macro-limit behavior.
+
+**Compatibility**: the package uses standard editable Office Math and keeps the PowerPoint 2010+ target; the executable profile is pinned to the documentation versions above. Repository verification covers compilation, OMML structure, and PPTX packaging, not a Microsoft 365 UI rendering/editability certification. Earlier PowerPoint versions are not the source-profile baseline; WPS, Keynote, LibreOffice, and other clients receive no embedded fallback. Reverse import is described in [`conversion.md`](conversion.md#native-formula-reverse-import).
+
+## `visual_review.py`
+
+Pure render-and-validate tool for the [`visual-review`](../../workflows/stages/visual-review.md) stage; it never edits SVGs and reads no rubric rule.
+
+```bash
+python3 scripts/visual_review.py <project_path> [--pages <token> ...] [--server-url http://127.0.0.1:<P>]
+```
+
+- Requires `playwright` plus chromium and a running live-preview server for the same project; without `--server-url` it discovers the port from `<project>/live_preview/lock.json`, and in either case validates `/api/health` against the target project and rejects a server for another project.
+- Output PNG matches the live-preview browser (inlined `<use data-icon>`, resolved `<image href>`); the root SVG `viewBox` is the canvas source of truth, and each successful page record carries `view_box`, `width` / `height`, and raster `png_width` / `png_height`; output dimensions equal that record's raster size. A record with `"all_background": true` rendered to a blank surface.
+- Renders are serialized by `<project>/.preview/.render.lock`, so concurrent invocation is safe.
+- Exit codes: `0` all requested pages rendered; `2` live-preview server unreachable or serving a different project; `3` playwright/chromium missing or unable to launch; `4` page-level render failure (details on stderr, partial output on disk).
+
 ## `total_md_split.py`
 
 Split `total.md` into per-slide note files.
@@ -954,7 +1001,7 @@ Requirements:
 - Heading text matches the SVG filename
 - Sections are separated by `---`
 
-## Measuring and wrapping text before authoring
+## Measuring, wrapping, and calibrating text before authoring
 
 `text_measure.py` imports the same single-line DrawingML width estimator used by
 the SVG quality checker.
@@ -965,11 +1012,17 @@ the SVG quality checker.
   includes the outer `<text>` element, and `--json` prints line metrics.
 - `box` prints a `data-pptx-bounds` attribute plus numeric `top` and `bottom`, or
   a JSON bounds object with `--json`.
+- `calibrate` measures fixed CJK and Latin samples for every typography role
+  from `spec_lock.md` or repeatable `--role NAME:FAMILY:SIZE` overrides, writes
+  `validation/text_calibration.json`, and prints a compact table or JSON. Add
+  `--outline` to include the longest planned line per mapped role from Design
+  Spec §IX.
 
 ```bash
 python3 scripts/text_measure.py measure "Editable DrawingML text" --size 22
 python3 scripts/text_measure.py wrap "Editable DrawingML text stays measurable" --size 22 --max-width 240 --x 96 --dy 30 --y 140
 python3 scripts/text_measure.py box "First line" "Second line" --x 96 --y 140 --size 22 --lines 2 --dy 30
+python3 scripts/text_measure.py calibrate projects/example --outline
 ```
 
 ## `svg_quality_checker.py`
@@ -1050,6 +1103,53 @@ python3 scripts/svg_position_calculator.py analyze <svg_file>
 
 Use this after SVG generation to inspect existing SVG geometry when manual comparison needs more context.
 
+### Verification recipes
+
+Used by the [`verify-charts`](../../workflows/stages/verify-charts.md) stage for chart objects whose geometry reduces to repeated direct calculations (`decomposable-calc` / `partial-calc`), a closed formula (`formula-verify`), or inspection only (`manual-verify`). Every recipe produces one receipt line; a page that cannot be reduced cleanly is marked `manual-verify` with the reason, never dropped.
+
+**Stacked bar** — for N stacked series on the same categories, run `calc bar` N times. Pass each segment's height as the data value and shift `--area`'s `y_max` down by the sum of all lower segments for that category; compare each segment's `(x, y, width, height)`.
+
+```bash
+# two-series stack at "Q1" with bottom=30, top=20, plot y from 100 to 500
+python3 scripts/svg_position_calculator.py calc bar --data "Q1:30,Q2:..." --area "x_min,100,x_max,500" --bar-width 80 --value-range=0,axis_max
+python3 scripts/svg_position_calculator.py calc bar --data "Q1:20,Q2:..." --area "x_min,100,x_max,<500 - bottom_height_px>" --bar-width 80 --value-range=0,axis_max
+```
+
+**Stacked area** — run `calc line` N times on cumulative y-values (series 1 raw; series 2 = s1+s2; …); each call yields one band's top boundary, and each band's path closes to the previous band's top, not `y_max`. Negative segments or percent-stacked totals other than 100 are `manual-verify`.
+
+**Dumbbell** — the two endpoints are points, not bar ends (`calc bar --horizontal` anchors at `x_min`). Number categories `0.5, 1.5, …, N-0.5` with `--y-range=0,N` (swap axes for vertical dumbbells), set `--x-range` from ticks, run `calc line` once per endpoint series with identical `--area` / ranges; each `(SVG_X, SVG_Y)` is the endpoint circle's `(cx, cy)`, and the connector is `x1=cx_left, x2=cx_right, y1=y2=cy`.
+
+```bash
+python3 scripts/svg_position_calculator.py calc line --data "42:0.5,55:1.5,37:2.5" --area "100,100,700,460" --x-range=0,100 --y-range=0,3
+python3 scripts/svg_position_calculator.py calc line --data "68:0.5,71:1.5,49:2.5" --area "100,100,700,460" --x-range=0,100 --y-range=0,3
+```
+
+**Pareto** — `calc bar` on the descending values with the bar-axis range; precompute cumulative percentages; `calc line` on `0.5:cum1,…,N-0.5:cumN` with `--x-range=0,N`, the right-side percentage axis as `--y-range` (usually `0,100`), and the same `--area` (the `n - 0.5` offset centers each point on its bar). Compare bars, line, and markers separately.
+
+**Dual-axis line** — read each Y-axis tick range independently; run `calc line` once per series with its own `--y-range` and a shared `--x-range` / area; never apply the left scale to the right series.
+
+**Bullet** — bands overlap in one y row, so run `calc bar --horizontal` once per band with a single data point: `--data "<band>:<right_edge_value>" --area "<x_min>,<band_y>,<x_max>,<band_y+band_height>" --bar-width <band_height>` (widest band's right edge = axis max). Run once more for the actual bar with its inset area; the target marker is a `<line>` at `x = x_min + target/axis_max × area_width`.
+
+**Butterfly** — read the value range and center-line `cx`; run `calc bar --horizontal` once per side with `x_min = cx`, `x_max = cx + side_width`; right bars map directly, left bars mirror as `x = cx - width`; verify both sides share `y + height/2` per category.
+
+**Grouped bar** — with N series and group width `W`, each series bar is `W/N` wide at offset `(i - 1) × W/N`; run `calc bar` once per series with the same `--area` / `--value-range` and `--bar-width` set to the inner width; the per-category center is the group center, so `x = group_center - W/2 + (i-1) × W/N`.
+
+**Box plot** — five y-values per category on one axis. Run `calc bar` once treating the box (Q3 − Q1) as a synthetic segment with `y_max` shifted to the Q1 baseline; median and whisker y = `y_axis_top + (axis_max - value) × pixels_per_unit`.
+
+**Gantt** — pixels-per-unit from the header tick positions `(x_unit_n - x_unit_1) / (n - 1)`; run `calc line` over `start_index:row_y` and again over `end_index:row_y` — the two `SVG_X` values are `x` and `x + width`; row y is read directly. A qualitative stage/lane plan not derived from dates is not a chart and never enters verification.
+
+**Waterfall** — compute running totals (`cum[i] = cum[i-1] ± delta[i]`, reset for totals); build `top[i] = max(cum_before, cum_after)` and `bot[i] = min(...)`; run `calc bar` twice with identical parameters — the `top` run's `Y` is `y`, `height = bot.Y - top.Y`; connectors run from `(x + width, Y_i)` to `(x_next, Y_{i+1})` at the shared cumulative value; total bars use `bot = 0`.
+
+**Bubble / plotted 2×2 matrix** — `calc line` verifies `cx/cy` from x/y values and ticks. For `matrix_2x2`, the axis midpoint must match the quadrant split; Low/High-only axes need an explicit numeric mapping from the active §IX decision or an SVG comment, otherwise record `xy=manual (scale missing)`. Verify radius only when a size scale is declared (`radius = sqrt(value) * k` or min/max mapping) — `spec_lock.md` is not a size-scale authority; otherwise record `radius=manual (scale missing)` and inspect ordering by hand.
+
+**Bar-of-pie / pie-of-pie** — replace the expanded tail with one aggregate value and `calc pie` the main pie; `pie_of_pie` runs `calc pie` again on the tail at the secondary center/radius, `bar_of_pie` verifies each detail height as `tail_value / sum(tail) × detail_height` with no gaps or overlap; the aggregate slice equals the sum of expanded values and connectors touch both plot regions.
+
+**Stock** — `calc line` for open, high, low, close on the shared price axis; the wick spans `high_y..low_y`, the body `min(open_y, close_y)..max(...)`; body color follows `close >= open` and stays inside its wick.
+
+**Formula-verify** (no calc call): progress bar `fill_width = value / max × track_width`; gauge `needle_angle = start_angle + value / max × sweep_angle`, compared against `transform="rotate(α …)"` or the endpoint `(cx + L·cos α, cy + L·sin α)`; funnel `top_width = prev.bottom_width`, `bottom_width = top_width × next_value / curr_value`, inset `(top_width - bottom_width) / 2`, first top width from the outer frame; sunburst arc length `node_value / root_total × 2πr` per ring with offsets from cumulative siblings plus any declared gap, children inside the parent span, siblings summing to the parent. The receipt quotes the formula and result (`formula=0.92×700=644px`).
+
+**Manual-verify**: sankey — link widths proportional to flow, node totals in = out; heatmap — grid positions are fixed, verify each cell's color falls in the bin matching its value and extremes use the legend's high/low colors; treemap — `width × height ≈ total_area × value / sum(values)` for top-level cells, nested cells summing to the parent; word cloud — font sizes monotonic with declared weights or bins, then inspect bounds for overlap and clipping; position is layout-driven.
+
 ## Advanced Standalone Tools
 
 ### `flatten_tspan.py`
@@ -1067,7 +1167,10 @@ python3 scripts/svg_finalize/align_embed_images.py --dry-run path/to/slide.svg
 ```
 
 Use for rare single-file diagnostics when image `slice` / `meet` alignment and
-Base64 embedding must be inspected outside `finalize_svg.py`. In normal project
+Base64 embedding must be inspected outside `finalize_svg.py`. Embedded hrefs are
+`data:<mime>;base64,...` with `image/png`, `image/jpeg`, `image/gif`,
+`image/webp`, or `image/svg+xml`; recover an embedded payload with
+`base64 -d image.b64 > image.png`. In normal project
 runs, use `python3 scripts/finalize_svg.py <project_path>`; the old
 `crop-images`, `fix-aspect`, and `embed-images` names remain accepted only as
 `finalize_svg.py --only` aliases for the merged `align-images` step.
@@ -1090,8 +1193,10 @@ this only for manual checks outside `finalize_svg.py`.
 The always-on SVG authoring contract lives in
 [`shared-standards-core.md`](../../references/shared-standards-core.md), with
 advanced effects, native data objects, and structured PPTX metadata owned by
-their conditionally loaded modules. This tool guide does not repeat accepted
-syntax, rejected constructs, or conditional limits.
+their conditionally loaded modules. The complete closed grammar those files
+rely on — mapping tables, accepted-but-warned spellings, rejection boundaries,
+and imported native-shape metadata — is documented in
+[`svg-contract.md`](svg-contract.md). This tool guide does not repeat it.
 
 `svg_quality_checker.py` validates source SVG before finalization.
 `finalize_svg.py` and native export apply the preprocessing required by that
