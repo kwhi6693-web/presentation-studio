@@ -392,13 +392,18 @@ jobs:
           RELEASE_NOTES_PATH: ${{ runner.temp }}/release-notes.md
         run: |
           set -euo pipefail
-          existing_release="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_VERSION" 2> "$RUNNER_TEMP/release-view.err" || true)"
-          if [[ -z "$existing_release" ]]; then
+          existing_release=""
+          if existing_release="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_VERSION" 2> "$RUNNER_TEMP/release-view.err")"; then
+            release_exists=true
+          else
+            release_exists=false
             status="$(gh api --include "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_VERSION" 2> /dev/null | head -n 1 | tr -d '\r' || true)"
             [[ "$status" == *" 404 "* ]] || {
               echo "Release existence readback failed without an authoritative 404." > "$RUNNER_TEMP/blocker.txt"
               exit 1
             }
+          fi
+          if [[ "$release_exists" == false ]]; then
             gh release create "$RELEASE_VERSION" \
               --draft \
               --target "$RELEASE_SHA" \

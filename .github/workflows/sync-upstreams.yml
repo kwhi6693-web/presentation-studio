@@ -63,12 +63,14 @@ jobs:
         run: |
           set -euo pipefail
           APP_LOGIN="${APP_SLUG}[bot]"
+          APP_GRAPHQL_LOGIN="app/${APP_SLUG}"
           APP_USER_ID="$(gh api "/users/${APP_SLUG}%5Bbot%5D" --jq '.id')"
           [[ "$APP_USER_ID" =~ ^[0-9]+$ ]] || {
             echo "Trusted GitHub App bot user ID is missing or invalid for deterministic commit attribution." > "$RUNNER_TEMP/blocker.txt"
             exit 1
           }
           echo "login=$APP_LOGIN" >> "$GITHUB_OUTPUT"
+          echo "graphql_login=$APP_GRAPHQL_LOGIN" >> "$GITHUB_OUTPUT"
           echo "email=${APP_USER_ID}+${APP_LOGIN}@users.noreply.github.com" >> "$GITHUB_OUTPUT"
       - name: Verify trusted automation labels are provisioned (idempotent ensure)
         shell: bash
@@ -132,13 +134,14 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           APP_LOGIN: ${{ steps.app-user.outputs.login }}
+          APP_GRAPHQL_LOGIN: ${{ steps.app-user.outputs.graphql_login }}
           APP_EMAIL: ${{ steps.app-user.outputs.email }}
         run: |
           set -euo pipefail
           selection="$(
             gh pr list --state open --base main --limit 100 \
               --json headRefName,url,isCrossRepository,author,labels \
-              | jq --arg source "$SOURCE" --arg app "$APP_LOGIN" '
+              | jq --arg source "$SOURCE" --arg app "$APP_GRAPHQL_LOGIN" '
                   map(select(
                     (.isCrossRepository == false)
                     and (.author.login == $app)
@@ -270,6 +273,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           APP_LOGIN: ${{ steps.app-user.outputs.login }}
+          APP_GRAPHQL_LOGIN: ${{ steps.app-user.outputs.graphql_login }}
           APP_EMAIL: ${{ steps.app-user.outputs.email }}
           SYNC_BRANCH: ${{ steps.sync_pr.outputs.branch }}
           EXISTING_PR: ${{ steps.sync_pr.outputs.url }}
@@ -305,7 +309,7 @@ jobs:
           readback="$(gh pr view "$pr_url" --json state,baseRefName,headRefName,isCrossRepository,isDraft,author,labels)"
           jq -e \
             --arg branch "$SYNC_BRANCH" \
-            --arg app "$APP_LOGIN" \
+            --arg app "$APP_GRAPHQL_LOGIN" \
             'select(
               (.state == "OPEN")
               and (.baseRefName == "main")
