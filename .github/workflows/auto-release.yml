@@ -144,7 +144,8 @@ jobs:
               --conclusion "$RUN_CONCLUSION" \
               --event "$RUN_EVENT" \
               --head-branch "$RUN_HEAD_BRANCH" \
-              --head-sha "$CANDIDATE_SHA" > "$decision"
+              --head-sha "$CANDIDATE_SHA" \
+              --release-target-sha "$RELEASE_SHA" > "$decision"
             policy_status=$?
             set -e
             if ((policy_status == 0)); then
@@ -278,7 +279,8 @@ jobs:
               --conclusion "success" \
               --event "push" \
               --head-branch "main" \
-              --head-sha "$CANDIDATE_SHA" > "$RUNNER_TEMP/release-recheck.json"
+              --head-sha "$CANDIDATE_SHA" \
+              --release-target-sha "$RELEASE_SHA" > "$RUNNER_TEMP/release-recheck.json"
             policy_status=$?
             set -e
             if ((policy_status == 0)); then
@@ -404,56 +406,59 @@ jobs:
           RELEASE_NOTES_PATH: ${{ runner.temp }}/release-notes.md
         run: |
           set -euo pipefail
-          existing_release=""
-          if existing_release="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_VERSION" 2> "$RUNNER_TEMP/release-view.err")"; then
-            release_exists=true
-          else
-            release_exists=false
-            status="$(gh api --include "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_VERSION" 2> /dev/null | head -n 1 | tr -d '\r' || true)"
-            [[ "$status" == *" 404 "* ]] || {
-              echo "Release existence readback failed without an authoritative 404." > "$RUNNER_TEMP/blocker.txt"
-              exit 1
-            }
-          fi
-          if [[ "$release_exists" == false ]]; then
-            gh release create "$RELEASE_VERSION" \
-              --draft \
-              --target "$RELEASE_SHA" \
-              --title "Presentation Studio $RELEASE_VERSION" \
-              --notes-file "$RUNNER_TEMP/release-notes.md"
-          else
-            jq -e 'select((.draft == true) or (.prerelease == true))' <<< "$existing_release" > /dev/null || {
-              echo "Existing release is not a resumable draft or prerelease." > "$RUNNER_TEMP/blocker.txt"
-              exit 1
-            }
-            existing_tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_VERSION" --jq '.sha')"
-            [[ "$existing_tag_sha" == "$RELEASE_SHA" ]] || {
-              echo "Existing release tag does not point to the validated main commit." > "$RUNNER_TEMP/blocker.txt"
-              exit 1
-            }
-            existing_release_id="$(jq -er '.id' <<< "$existing_release")"
-            existing_release_name="Presentation Studio $RELEASE_VERSION"
-            existing_notes="$(<"$RELEASE_NOTES_PATH")"
-            echo "Existing release notes and title are refreshed from the current verified run."
-            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$existing_release_id" \
-              --input - <<< "$(jq -cn --arg name "$existing_release_name" --arg body "$existing_notes" '{name:$name,body:$body}')" \
-              > "$RUNNER_TEMP/existing-release-update.json"
-            refreshed_release="$(gh api "repos/$GITHUB_REPOSITORY/releases/$existing_release_id")"
-            jq -e --arg name "$existing_release_name" --arg body "$existing_notes" \
-              'select((.name == $name) and (.body == $body))' <<< "$refreshed_release" > /dev/null || {
-                echo "Existing release notes/title readback did not match the current verified run." > "$RUNNER_TEMP/blocker.txt"
-                exit 1
-            }
-          fi
           expected_release_name="Presentation Studio $RELEASE_VERSION"
           expected_release_notes="$(<"$RELEASE_NOTES_PATH")"
-          release_readback="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_VERSION")"
-          jq -e --arg name "$expected_release_name" --arg body "$expected_release_notes" \
-            'select((.name == $name) and (.body == $body))' <<< "$release_readback" > /dev/null || {
-              echo "Release notes/title readback did not match the current verified run." > "$RUNNER_TEMP/blocker.txt"
+          all_releases="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" | jq -s 'add')"
+          matching_releases="$(jq -c --arg tag "$RELEASE_VERSION" '[.[] | select(.tag_name == $tag)]' <<< "$all_releases")"
+          match_count="$(jq -r 'length' <<< "$matching_releases")"
+          if ((match_count > 1)); then
+            echo "Multiple Release records use the calculated version; refusing to choose between them." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          fi
+
+          existing_release="$(jq -c '.[0] // empty' <<< "$matching_releases")"
+          release_id=""
+          if [[ -z "$existing_release" ]]; then
+            release_payload="$(jq -cn \
+              --arg tag "$RELEASE_VERSION" \
+              --arg target "$RELEASE_SHA" \
+              --arg name "$expected_release_name" \
+              --arg body "$expected_release_notes" \
+              '{tag_name:$tag,target_commitish:$target,name:$name,body:$body,draft:true,prerelease:false,generate_release_notes:false}')"
+            created_release="$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" --input - <<< "$release_payload")"
+            release_id="$(jq -er '.id' <<< "$created_release")"
+          else
+            jq -e \
+              --arg tag "$RELEASE_VERSION" \
+              --arg target "$RELEASE_SHA" \
+              'select(((.draft == true) or (.prerelease == true)) and (.tag_name == $tag) and (.target_commitish == $target))' \
+              <<< "$existing_release" > /dev/null || {
+              echo "Existing Release is not a resumable draft/prerelease for the validated main commit." > "$RUNNER_TEMP/blocker.txt"
               exit 1
+            }
+            release_id="$(jq -er '.id' <<< "$existing_release")"
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+              --input - <<< "$(jq -cn --arg name "$expected_release_name" --arg body "$expected_release_notes" '{name:$name,body:$body}')" \
+              > "$RUNNER_TEMP/existing-release-update.json"
+          fi
+
+          [[ -n "$release_id" ]] || {
+            echo "Draft Release ID was not returned." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
           }
-          existing_assets="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_VERSION")"
+          release_readback="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id")"
+          jq -e \
+            --arg tag "$RELEASE_VERSION" \
+            --arg target "$RELEASE_SHA" \
+            --arg name "$expected_release_name" \
+            --arg body "$expected_release_notes" \
+            'select(((.draft == true) or (.prerelease == true)) and (.tag_name == $tag) and (.target_commitish == $target) and (.name == $name) and (.body == $body))' \
+            <<< "$release_readback" > /dev/null || {
+            echo "Draft Release readback did not match the verified tag, target, title, or notes." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          }
+          echo "RELEASE_ID=$release_id" >> "$GITHUB_ENV"
+          existing_assets="$release_readback"
           upload_assets=()
           for asset in presentation-studio.zip presentation-studio.zip.sha256; do
             expected_digest="$ARTIFACT_SHA"
@@ -472,7 +477,19 @@ jobs:
             fi
           done
           if ((${#upload_assets[@]})); then
-            gh release upload "$RELEASE_VERSION" "${upload_assets[@]}"
+            for asset_path in "${upload_assets[@]}"; do
+              asset_name="$(basename "$asset_path")"
+              content_type="text/plain"
+              if [[ "$asset_name" == "presentation-studio.zip" ]]; then
+                content_type="application/zip"
+              fi
+              encoded_name="$(jq -rn --arg name "$asset_name" '$name | @uri')"
+              gh api --method POST \
+                -H "Content-Type: $content_type" \
+                "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$release_id/assets?name=$encoded_name" \
+                --input "$asset_path" \
+                > "$RUNNER_TEMP/release-upload-$asset_name.json"
+            done
           fi
       - name: Verify draft tag and assets, then publish and read back
         if: steps.policy.outputs.action == 'release' && steps.policy.outputs.state != 'complete' && steps.version-lock.outputs.state != 'complete'
@@ -482,16 +499,16 @@ jobs:
           RELEASE_NOTES_PATH: ${{ runner.temp }}/release-notes.md
         run: |
           set -euo pipefail
-          tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_VERSION" --jq '.sha')"
-          [[ "$tag_sha" == "$RELEASE_SHA" ]] || {
-            echo "Release tag does not point to the validated main commit." > "$RUNNER_TEMP/blocker.txt"
+          [[ -n "${RELEASE_ID:-}" ]] || {
+            echo "Draft Release ID is missing from the verified creation step." > "$RUNNER_TEMP/blocker.txt"
             exit 1
           }
-          release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_VERSION")"
-          release_id="$(jq -r '.id' <<< "$release_json")"
+          release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID")"
           expected_release_name="Presentation Studio $RELEASE_VERSION"
           expected_release_notes="$(<"$RELEASE_NOTES_PATH")"
           jq -e \
+            --arg tag "$RELEASE_VERSION" \
+            --arg target "$RELEASE_SHA" \
             --arg name "$expected_release_name" \
             --arg body "$expected_release_notes" \
             --argjson zip_size "$ARTIFACT_SIZE" \
@@ -500,20 +517,26 @@ jobs:
             --arg checksum "sha256:$CHECKSUM_SHA" '
               select(
                 ((.draft == true) or (.prerelease == true))
+                and (.tag_name == $tag)
+                and (.target_commitish == $target)
                 and (.name == $name)
                 and (.body == $body)
                 and (.assets | length == 2)
                 and (any(.assets[]; .name == "presentation-studio.zip" and .state == "uploaded" and .size == $zip_size and .digest == $zip))
                 and (any(.assets[]; .name == "presentation-studio.zip.sha256" and .state == "uploaded" and .size == $checksum_size and .digest == $checksum))
-              )
-            ' <<< "$release_json" > /dev/null
+            )
+          ' <<< "$release_json" > /dev/null
           readback_dir="$RUNNER_TEMP/release-asset-readback"
           mkdir -p "$readback_dir"
-          gh release download "$RELEASE_VERSION" \
-            --pattern "presentation-studio.zip" \
-            --pattern "presentation-studio.zip.sha256" \
-            --dir "$readback_dir" \
-            --clobber
+          download_release_asset() {
+            local asset_name="$1"
+            local output_path="$2"
+            local asset_url
+            asset_url="$(jq -er --arg name "$asset_name" '.assets[] | select(.name == $name) | .url' <<< "$release_json")"
+            gh api -H "Accept: application/octet-stream" "$asset_url" > "$output_path"
+          }
+          download_release_asset "presentation-studio.zip" "$readback_dir/presentation-studio.zip"
+          download_release_asset "presentation-studio.zip.sha256" "$readback_dir/presentation-studio.zip.sha256"
           readback_artifact_sha="$(sha256sum "$readback_dir/presentation-studio.zip" | cut -d ' ' -f 1)"
           readback_checksum_sha="$(sha256sum "$readback_dir/presentation-studio.zip.sha256" | cut -d ' ' -f 1)"
           [[ "$readback_artifact_sha" == "$ARTIFACT_SHA" ]] || {
@@ -525,9 +548,9 @@ jobs:
             exit 1
           }
           (cd "$readback_dir" && sha256sum --check presentation-studio.zip.sha256)
-          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
             --input - <<< '{"draft":false,"prerelease":false,"make_latest":"true"}' > "$RUNNER_TEMP/publish.json"
-          published_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id")"
+          published_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID")"
           published_tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_VERSION" --jq '.sha')"
           [[ "$published_tag_sha" == "$RELEASE_SHA" ]] || {
             echo "Published Release tag no longer points to the validated main commit." > "$RUNNER_TEMP/blocker.txt"
