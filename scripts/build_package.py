@@ -28,6 +28,21 @@ EXCLUDED_NAMES = {".DS_Store", ".env", "Thumbs.db"}
 EXCLUDED_SUFFIXES = {".bak", ".log", ".pyc", ".pyo", ".swp", ".tmp"}
 
 
+def _reject_symlinks(root: Path) -> None:
+    """Fail closed when the package tree contains symbolic links.
+
+    ZIP creation must never follow a link supplied by a checked-out branch.  A
+    link can otherwise make ``Path.read_bytes`` package a file outside the
+    repository (or make a link target change between two deterministic builds).
+    """
+
+    if root.is_symlink():
+        raise ValueError(f"Skill root must not be a symbolic link: {root}")
+    for path in root.rglob("*"):
+        if path.is_symlink():
+            raise ValueError(f"Skill tree contains a symbolic link: {path}")
+
+
 def _is_included(path: Path, skill_root: Path) -> bool:
     relative = path.relative_to(skill_root)
     return (
@@ -38,6 +53,7 @@ def _is_included(path: Path, skill_root: Path) -> bool:
 
 
 def _skill_files(skill_root: Path) -> list[Path]:
+    _reject_symlinks(skill_root)
     return sorted(
         (path for path in skill_root.rglob("*") if path.is_file() and _is_included(path, skill_root)),
         key=lambda path: path.relative_to(skill_root).as_posix(),
@@ -55,7 +71,10 @@ def sha256_file(path: Path) -> str:
 def build_archive(skill_root: Path, archive_path: Path) -> str:
     """Write a byte-reproducible ZIP and return its lowercase SHA-256."""
 
+    skill_root = Path(skill_root)
+    _reject_symlinks(skill_root)
     skill_root = skill_root.resolve()
+    _reject_symlinks(skill_root)
     archive_path = archive_path.resolve()
     if not skill_root.is_dir():
         raise FileNotFoundError(f"Skill root does not exist: {skill_root}")

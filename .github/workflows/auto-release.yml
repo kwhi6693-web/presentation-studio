@@ -1,0 +1,580 @@
+name: Auto release trusted upstream
+
+on:
+  workflow_run:
+    workflows: ["Validate package"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  # Keep one independent queue per validated main commit.  A repository-wide
+  # group would let GitHub replace older pending workflow_run events when four
+  # trusted sync PRs merge in quick succession.
+  group: auto-release-${{ github.repository }}-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+      WORKFLOW_EVIDENCE: ${{ github.event.workflow_run.html_url }}
+    steps:
+      - name: Checkout the exact validated main commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Reject symbolic links in the validated main tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          symlink_path="$(find -P presentation-studio -type l -print -quit)"
+          if [[ -n "$symlink_path" ]]; then
+            echo "Symbolic links are not permitted in a release tree: $symlink_path" > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          fi
+      - name: Set up release runtime
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20.9.0"
+      - name: Resolve a trusted merged automation candidate
+        id: candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pulls="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_SHA/pulls?per_page=100")"
+          candidates="$(jq --arg repo "$GITHUB_REPOSITORY" --arg sha "$RELEASE_SHA" '
+            map(select(
+              (.merged_at != null)
+              and (.merge_commit_sha == $sha)
+              and (.base.ref == "main")
+              and (.head.repo.full_name == $repo)
+              and (.head.ref | startswith("automation/sync-"))
+              and ([.labels[].name] | index("automation:upstream-sync") != null)
+            ))
+          ' <<< "$pulls")"
+          candidate_count="$(jq -r 'length' <<< "$candidates")"
+          if [[ "$candidate_count" -gt 1 ]]; then
+            echo "::error::Multiple live trusted merged automation PRs are associated with this validated main commit; refusing to select a Release candidate." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          fi
+          candidate="$(jq -c '.[0] // empty' <<< "$candidates")"
+          if [[ -z "$candidate" ]]; then
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Validated main commit has no trusted upstream merge candidate; no Release is created."
+            exit 0
+          fi
+          echo "eligible=true" >> "$GITHUB_OUTPUT"
+          echo "number=$(jq -r '.number' <<< "$candidate")" >> "$GITHUB_OUTPUT"
+      - name: Require trusted GitHub App credentials
+        if: steps.candidate.outputs.eligible == 'true'
+        shell: bash
+        env:
+          APP_ID: ${{ vars.UPSTREAM_SYNC_APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.UPSTREAM_SYNC_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$APP_ID" ]]; then
+            echo "::error::Trusted GitHub App ID is missing. Configure repository variable UPSTREAM_SYNC_APP_ID."
+            exit 1
+          fi
+          if [[ -z "$APP_PRIVATE_KEY" ]]; then
+            echo "::error::Trusted GitHub App private key is missing. Configure repository secret UPSTREAM_SYNC_APP_PRIVATE_KEY."
+            exit 1
+          fi
+      - name: Create repository-scoped trusted automation token
+        if: steps.candidate.outputs.eligible == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.UPSTREAM_SYNC_APP_ID }}
+          private-key: ${{ secrets.UPSTREAM_SYNC_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-metadata: read
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Evaluate live release identity, association, semver, and collisions
+        if: steps.candidate.outputs.eligible == 'true'
+        id: policy
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_APP_LOGIN: ${{ steps.app-token.outputs.app-slug }}[bot]
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          decision="$RUNNER_TEMP/release-decision.json"
+          policy_status=1
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+            set +e
+            python scripts/automation_policy.py evaluate-release \
+              --repository "$GITHUB_REPOSITORY" \
+              --expected-app-login "$EXPECTED_APP_LOGIN" \
+              --conclusion "$RUN_CONCLUSION" \
+              --event "$RUN_EVENT" \
+              --head-branch "$RUN_HEAD_BRANCH" \
+              --head-sha "$RELEASE_SHA" > "$decision"
+            policy_status=$?
+            set -e
+            if ((policy_status == 0)); then
+              break
+            fi
+            reason="$(jq -r '.decision.reason // .reason // ""' "$decision" 2> /dev/null || true)"
+            if [[ "$reason" == release\ version\ collision:* || "$reason" == tag\ version\ collision:* ]]; then
+              if ((attempt < 20)); then
+                echo "::notice::A concurrent Release owns the current candidate version; waiting before recomputing semver (attempt $attempt/20)."
+                sleep 15
+                continue
+              fi
+            fi
+            jq -r '.decision.reason // .reason // "policy command failed without a structured reason"' "$decision" > "$RUNNER_TEMP/blocker.txt" || \
+              echo "policy command failed without a structured reason" > "$RUNNER_TEMP/blocker.txt"
+            echo "::error::$(head -c 2000 "$RUNNER_TEMP/blocker.txt")"
+            exit "$policy_status"
+          done
+          if ((policy_status != 0)); then
+            echo "Release semver lock did not stabilize after bounded retries." > "$RUNNER_TEMP/blocker.txt"
+            exit "$policy_status"
+          fi
+          action="$(jq -r '.decision.action // .action // "error"' "$decision")"
+          if [[ "$action" == "block" || "$action" == "error" ]]; then
+            jq -r '.decision.reason // .reason // "release policy failed"' "$decision" > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          fi
+          echo "action=$action" >> "$GITHUB_OUTPUT"
+          echo "state=$(jq -r '.plan.state // ""' "$decision")" >> "$GITHUB_OUTPUT"
+          echo "version=$(jq -r '.plan.version // ""' "$decision")" >> "$GITHUB_OUTPUT"
+          echo "RELEASE_VERSION=$(jq -r '.plan.version // ""' "$decision")" >> "$GITHUB_ENV"
+          echo "source=$(jq -r '.decision.source // ""' "$decision")" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$(jq -r '.pull_request.number // ""' "$decision")" >> "$GITHUB_OUTPUT"
+          echo "pr_title=$(jq -r '.pull_request.title // "" | gsub("[\r\n]"; " ")' "$decision")" >> "$GITHUB_OUTPUT"
+      - name: Verify exact main source scope and provenance
+        if: steps.policy.outputs.action == 'release' && steps.policy.outputs.state != 'complete'
+        shell: bash
+        env:
+          SOURCE: ${{ steps.policy.outputs.source }}
+        run: |
+          set -euo pipefail
+          base_sha="$(git rev-parse "$RELEASE_SHA^")"
+          git diff --no-renames --name-only "$base_sha" "$RELEASE_SHA" > "$RUNNER_TEMP/release-changed-paths.txt"
+          python scripts/upstream_sync.py verify-scope --source "$SOURCE" --paths-file "$RUNNER_TEMP/release-changed-paths.txt"
+          python scripts/automation_policy.py verify-provenance \
+            --source "$SOURCE" \
+            --base-ref "$base_sha" > "$RUNNER_TEMP/release-provenance.json"
+      - name: Run complete repository verification on validated main
+        if: steps.policy.outputs.action == 'release' && steps.policy.outputs.state != 'complete'
+        run: |
+          python scripts/verify_repository_health.py
+          python -m unittest discover -s tests -v
+          python scripts/verify_examples.py
+      - name: Build and verify two deterministic release packages
+        if: steps.policy.outputs.action == 'release' && steps.policy.outputs.state != 'complete'
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$RELEASE_SHA" ]] || {
+            echo "Release checkout is not the validated main commit." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          }
+          untracked_or_modified="$(git status --porcelain --untracked-files=all)"
+          if [[ -n "$untracked_or_modified" ]]; then
+            echo "Release tree is not clean; refusing to package untracked or modified files." > "$RUNNER_TEMP/blocker.txt"
+            printf '%s\n' "$untracked_or_modified" >> "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          fi
+          release_dir="$RUNNER_TEMP/presentation-studio-release"
+          mkdir -p "$release_dir"
+          python scripts/build_package.py \
+            --archive "$release_dir/presentation-studio.zip" \
+            --checksum "$release_dir/presentation-studio-build.sha256" \
+            --compare-archive "$release_dir/presentation-studio-compare.zip" \
+            --compare-checksum "$release_dir/presentation-studio-compare.sha256"
+          python scripts/verify_package.py \
+            --archive "$release_dir/presentation-studio.zip" \
+            --checksum "$release_dir/presentation-studio-build.sha256" \
+            --smoke
+          python scripts/verify_package.py \
+            --archive "$release_dir/presentation-studio-compare.zip" \
+            --checksum "$release_dir/presentation-studio-compare.sha256" \
+            --smoke
+          cmp "$release_dir/presentation-studio.zip" "$release_dir/presentation-studio-compare.zip"
+          python scripts/build_release_checksum.py \
+            "$release_dir/presentation-studio.zip" \
+            "$release_dir/presentation-studio.zip.sha256"
+          artifact_sha="$(sha256sum "$release_dir/presentation-studio.zip" | cut -d ' ' -f 1)"
+          checksum_sha="$(sha256sum "$release_dir/presentation-studio.zip.sha256" | cut -d ' ' -f 1)"
+          artifact_size="$(wc -c < "$release_dir/presentation-studio.zip" | tr -d '[:space:]')"
+          checksum_size="$(wc -c < "$release_dir/presentation-studio.zip.sha256" | tr -d '[:space:]')"
+          echo "ARTIFACT_SHA=$artifact_sha" >> "$GITHUB_ENV"
+          echo "CHECKSUM_SHA=$checksum_sha" >> "$GITHUB_ENV"
+          echo "ARTIFACT_SIZE=$artifact_size" >> "$GITHUB_ENV"
+          echo "CHECKSUM_SIZE=$checksum_size" >> "$GITHUB_ENV"
+          echo "RELEASE_DIR=$release_dir" >> "$GITHUB_ENV"
+      - name: Render verified Presentation Studio release notes
+        if: steps.policy.outputs.action == 'release' && steps.policy.outputs.state != 'complete'
+        shell: bash
+        env:
+          PR_NUMBER: ${{ steps.policy.outputs.pr_number }}
+          PR_TITLE: ${{ steps.policy.outputs.pr_title }}
+        run: |
+          set -euo pipefail
+          python scripts/automation_policy.py release-notes \
+            --version "$RELEASE_VERSION" \
+            --pr-number "$PR_NUMBER" \
+            --pr-title "$PR_TITLE" \
+            --provenance "$RUNNER_TEMP/release-provenance.json" \
+            --artifact-sha256 "$ARTIFACT_SHA" \
+            --evidence-url "$WORKFLOW_EVIDENCE" \
+            --output "$RUNNER_TEMP/release-notes.md"
+      - name: Recheck version lock immediately before publication
+        if: steps.policy.outputs.action == 'release' && steps.policy.outputs.state != 'complete'
+        id: version-lock
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_APP_LOGIN: ${{ steps.app-token.outputs.app-slug }}[bot]
+          PR_NUMBER: ${{ steps.policy.outputs.pr_number }}
+          PR_TITLE: ${{ steps.policy.outputs.pr_title }}
+        run: |
+          set -euo pipefail
+          expected_version="$RELEASE_VERSION"
+          policy_status=1
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+            set +e
+            python scripts/automation_policy.py evaluate-release \
+              --repository "$GITHUB_REPOSITORY" \
+              --expected-app-login "$EXPECTED_APP_LOGIN" \
+              --conclusion "success" \
+              --event "push" \
+              --head-branch "main" \
+              --head-sha "$RELEASE_SHA" > "$RUNNER_TEMP/release-recheck.json"
+            policy_status=$?
+            set -e
+            if ((policy_status == 0)); then
+              break
+            fi
+            reason="$(jq -r '.decision.reason // .reason // ""' "$RUNNER_TEMP/release-recheck.json" 2> /dev/null || true)"
+            if [[ "$reason" == release\ version\ collision:* || "$reason" == tag\ version\ collision:* ]]; then
+              if ((attempt < 20)); then
+                echo "::notice::Publication race changed the semver baseline; waiting before the final version lock retry (attempt $attempt/20)."
+                sleep 15
+                continue
+              fi
+            fi
+            jq -r '.decision.reason // .reason // "policy command failed without a structured reason"' "$RUNNER_TEMP/release-recheck.json" > "$RUNNER_TEMP/blocker.txt" || \
+              echo "policy command failed without a structured reason" > "$RUNNER_TEMP/blocker.txt"
+            echo "::error::$(head -c 2000 "$RUNNER_TEMP/blocker.txt")"
+            exit "$policy_status"
+          done
+          if ((policy_status != 0)); then
+            echo "Release version lock did not stabilize after bounded retries." > "$RUNNER_TEMP/blocker.txt"
+            exit "$policy_status"
+          fi
+          recheck_action="$(jq -r '.decision.action // "error"' "$RUNNER_TEMP/release-recheck.json")"
+          recheck_state="$(jq -r '.plan.state // ""' "$RUNNER_TEMP/release-recheck.json")"
+          recheck_version="$(jq -r '.plan.version // ""' "$RUNNER_TEMP/release-recheck.json")"
+          if [[ "$recheck_action" != "release" || -z "$recheck_version" ]]; then
+            jq -r '.decision.reason // "final release policy did not return a release plan"' "$RUNNER_TEMP/release-recheck.json" > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          fi
+          if [[ "$recheck_state" != "new" && "$recheck_state" != "resume" && "$recheck_state" != "complete" ]]; then
+            echo "Final release policy returned an unsupported plan state: $recheck_state" > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          fi
+          echo "state=$recheck_state" >> "$GITHUB_OUTPUT"
+          if [[ "$recheck_version" != "$expected_version" ]]; then
+            echo "::notice::Final semver baseline selected $recheck_version instead of $expected_version; refreshing release notes before publication."
+            echo "RELEASE_VERSION=$recheck_version" >> "$GITHUB_ENV"
+            python scripts/automation_policy.py release-notes \
+              --version "$recheck_version" \
+              --pr-number "$PR_NUMBER" \
+              --pr-title "$PR_TITLE" \
+              --provenance "$RUNNER_TEMP/release-provenance.json" \
+              --artifact-sha256 "$ARTIFACT_SHA" \
+              --evidence-url "$WORKFLOW_EVIDENCE" \
+              --output "$RUNNER_TEMP/release-notes.md"
+          fi
+      - name: Verify an existing formal Release contract before idempotent completion
+        if: >-
+          steps.policy.outputs.action == 'release' &&
+          (steps.policy.outputs.state == 'complete' || steps.version-lock.outputs.state == 'complete')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_VERSION")"
+          tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_VERSION" --jq '.sha')"
+          [[ "$tag_sha" == "$RELEASE_SHA" ]] || {
+            echo "Existing formal Release tag does not point to the validated main commit." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          }
+          jq -e --arg version "$RELEASE_VERSION" '
+            select(
+              (.draft == false)
+              and (.prerelease == false)
+              and (.name == ("Presentation Studio " + $version))
+              and ((.assets | map(.name) | sort) == ["presentation-studio.zip", "presentation-studio.zip.sha256"])
+              and (all(.assets[]; .state == "uploaded" and (.size | type == "number") and .size > 0 and (.digest | type == "string") and (.digest | test("^sha256:[0-9a-f]{64}$"))))
+            )
+          ' <<< "$release_json" > /dev/null || {
+            echo "Existing formal Release does not satisfy the two-asset artifact contract." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          }
+          release_body="$(jq -r '.body // ""' <<< "$release_json")"
+          for required_note in \
+            "# Presentation Studio $RELEASE_VERSION" \
+            "Merged PR: #" \
+            "Synchronized source:" \
+            "Upstream release:" \
+            "Post-merge \`main\` validation: PASS" \
+            "Artifact SHA-256:" \
+            "GitHub Actions evidence"; do
+            grep -Fq "$required_note" <<< "$release_body" || {
+              echo "Existing formal Release notes are missing required verification/provenance evidence: $required_note" > "$RUNNER_TEMP/blocker.txt"
+              exit 1
+            }
+          done
+          readback_dir="$RUNNER_TEMP/formal-release-readback"
+          mkdir -p "$readback_dir"
+          gh release download "$RELEASE_VERSION" \
+            --pattern "presentation-studio.zip" \
+            --pattern "presentation-studio.zip.sha256" \
+            --dir "$readback_dir" \
+            --clobber
+          artifact_sha="$(sha256sum "$readback_dir/presentation-studio.zip" | cut -d ' ' -f 1)"
+          checksum_sha="$(sha256sum "$readback_dir/presentation-studio.zip.sha256" | cut -d ' ' -f 1)"
+          api_artifact_digest="$(jq -r '.assets[] | select(.name == "presentation-studio.zip") | .digest' <<< "$release_json")"
+          api_checksum_digest="$(jq -r '.assets[] | select(.name == "presentation-studio.zip.sha256") | .digest' <<< "$release_json")"
+          [[ "$api_artifact_digest" == "sha256:$artifact_sha" ]] || {
+            echo "Existing formal Release ZIP digest does not match its API asset digest." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          }
+          [[ "$api_checksum_digest" == "sha256:$checksum_sha" ]] || {
+            echo "Existing formal Release checksum digest does not match its API asset digest." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          }
+          grep -Fq "Artifact SHA-256: \`$artifact_sha\`" <<< "$release_body" || {
+            echo "Existing formal Release notes do not record the exact published ZIP SHA-256." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          }
+          (cd "$readback_dir" && sha256sum --check presentation-studio.zip.sha256)
+          python scripts/verify_package.py \
+            --archive "$readback_dir/presentation-studio.zip" \
+            --checksum "$readback_dir/presentation-studio.zip.sha256" \
+            --smoke
+          echo "::notice::Existing formal Release passed tag, notes, asset, digest, checksum, and package readback; no duplicate Release was created."
+      - name: Create or resume a draft Release and upload verified assets
+        if: steps.policy.outputs.action == 'release' && steps.policy.outputs.state != 'complete' && steps.version-lock.outputs.state != 'complete'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_SHA: ${{ env.RELEASE_SHA }}
+          RELEASE_NOTES_PATH: ${{ runner.temp }}/release-notes.md
+        run: |
+          set -euo pipefail
+          existing_release="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_VERSION" 2> "$RUNNER_TEMP/release-view.err" || true)"
+          if [[ -z "$existing_release" ]]; then
+            status="$(gh api --include "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_VERSION" 2> /dev/null | head -n 1 | tr -d '\r' || true)"
+            [[ "$status" == *" 404 "* ]] || {
+              echo "Release existence readback failed without an authoritative 404." > "$RUNNER_TEMP/blocker.txt"
+              exit 1
+            }
+            gh release create "$RELEASE_VERSION" \
+              --draft \
+              --target "$RELEASE_SHA" \
+              --title "Presentation Studio $RELEASE_VERSION" \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
+          else
+            jq -e 'select((.draft == true) or (.prerelease == true))' <<< "$existing_release" > /dev/null || {
+              echo "Existing release is not a resumable draft or prerelease." > "$RUNNER_TEMP/blocker.txt"
+              exit 1
+            }
+            existing_tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_VERSION" --jq '.sha')"
+            [[ "$existing_tag_sha" == "$RELEASE_SHA" ]] || {
+              echo "Existing release tag does not point to the validated main commit." > "$RUNNER_TEMP/blocker.txt"
+              exit 1
+            }
+            existing_release_id="$(jq -er '.id' <<< "$existing_release")"
+            existing_release_name="Presentation Studio $RELEASE_VERSION"
+            existing_notes="$(<"$RELEASE_NOTES_PATH")"
+            echo "Existing release notes and title are refreshed from the current verified run."
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$existing_release_id" \
+              --input - <<< "$(jq -cn --arg name "$existing_release_name" --arg body "$existing_notes" '{name:$name,body:$body}')" \
+              > "$RUNNER_TEMP/existing-release-update.json"
+            refreshed_release="$(gh api "repos/$GITHUB_REPOSITORY/releases/$existing_release_id")"
+            jq -e --arg name "$existing_release_name" --arg body "$existing_notes" \
+              'select((.name == $name) and (.body == $body))' <<< "$refreshed_release" > /dev/null || {
+                echo "Existing release notes/title readback did not match the current verified run." > "$RUNNER_TEMP/blocker.txt"
+                exit 1
+            }
+          fi
+          expected_release_name="Presentation Studio $RELEASE_VERSION"
+          expected_release_notes="$(<"$RELEASE_NOTES_PATH")"
+          release_readback="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_VERSION")"
+          jq -e --arg name "$expected_release_name" --arg body "$expected_release_notes" \
+            'select((.name == $name) and (.body == $body))' <<< "$release_readback" > /dev/null || {
+              echo "Release notes/title readback did not match the current verified run." > "$RUNNER_TEMP/blocker.txt"
+              exit 1
+          }
+          existing_assets="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_VERSION")"
+          upload_assets=()
+          for asset in presentation-studio.zip presentation-studio.zip.sha256; do
+            expected_digest="$ARTIFACT_SHA"
+            if [[ "$asset" == "presentation-studio.zip.sha256" ]]; then
+              expected_digest="$CHECKSUM_SHA"
+            fi
+            actual_digest="$(jq -r --arg name "$asset" '
+              [.assets[]? | select(.name == $name) | .digest] |
+              if length == 0 then "" elif length == 1 then .[0] else "duplicate" end
+            ' <<< "$existing_assets")"
+            if [[ -z "$actual_digest" ]]; then
+              upload_assets+=("$RELEASE_DIR/$asset")
+            elif [[ "$actual_digest" != "sha256:$expected_digest" ]]; then
+              echo "Existing draft asset is duplicate or has a mismatched digest: $asset" > "$RUNNER_TEMP/blocker.txt"
+              exit 1
+            fi
+          done
+          if ((${#upload_assets[@]})); then
+            gh release upload "$RELEASE_VERSION" "${upload_assets[@]}"
+          fi
+      - name: Verify draft tag and assets, then publish and read back
+        if: steps.policy.outputs.action == 'release' && steps.policy.outputs.state != 'complete' && steps.version-lock.outputs.state != 'complete'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_NOTES_PATH: ${{ runner.temp }}/release-notes.md
+        run: |
+          set -euo pipefail
+          tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_VERSION" --jq '.sha')"
+          [[ "$tag_sha" == "$RELEASE_SHA" ]] || {
+            echo "Release tag does not point to the validated main commit." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          }
+          release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_VERSION")"
+          release_id="$(jq -r '.id' <<< "$release_json")"
+          expected_release_name="Presentation Studio $RELEASE_VERSION"
+          expected_release_notes="$(<"$RELEASE_NOTES_PATH")"
+          jq -e \
+            --arg name "$expected_release_name" \
+            --arg body "$expected_release_notes" \
+            --argjson zip_size "$ARTIFACT_SIZE" \
+            --argjson checksum_size "$CHECKSUM_SIZE" \
+            --arg zip "sha256:$ARTIFACT_SHA" \
+            --arg checksum "sha256:$CHECKSUM_SHA" '
+              select(
+                ((.draft == true) or (.prerelease == true))
+                and (.name == $name)
+                and (.body == $body)
+                and (.assets | length == 2)
+                and (any(.assets[]; .name == "presentation-studio.zip" and .state == "uploaded" and .size == $zip_size and .digest == $zip))
+                and (any(.assets[]; .name == "presentation-studio.zip.sha256" and .state == "uploaded" and .size == $checksum_size and .digest == $checksum))
+              )
+            ' <<< "$release_json" > /dev/null
+          readback_dir="$RUNNER_TEMP/release-asset-readback"
+          mkdir -p "$readback_dir"
+          gh release download "$RELEASE_VERSION" \
+            --pattern "presentation-studio.zip" \
+            --pattern "presentation-studio.zip.sha256" \
+            --dir "$readback_dir" \
+            --clobber
+          readback_artifact_sha="$(sha256sum "$readback_dir/presentation-studio.zip" | cut -d ' ' -f 1)"
+          readback_checksum_sha="$(sha256sum "$readback_dir/presentation-studio.zip.sha256" | cut -d ' ' -f 1)"
+          [[ "$readback_artifact_sha" == "$ARTIFACT_SHA" ]] || {
+            echo "Downloaded Release ZIP digest does not match the verified build." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          }
+          [[ "$readback_checksum_sha" == "$CHECKSUM_SHA" ]] || {
+            echo "Downloaded Release checksum asset digest does not match the verified build." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          }
+          (cd "$readback_dir" && sha256sum --check presentation-studio.zip.sha256)
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+            --input - <<< '{"draft":false,"prerelease":false,"make_latest":"true"}' > "$RUNNER_TEMP/publish.json"
+          published_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id")"
+          published_tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_VERSION" --jq '.sha')"
+          [[ "$published_tag_sha" == "$RELEASE_SHA" ]] || {
+            echo "Published Release tag no longer points to the validated main commit." > "$RUNNER_TEMP/blocker.txt"
+            exit 1
+          }
+          jq -e \
+            --arg name "$expected_release_name" \
+            --arg body "$expected_release_notes" \
+            --argjson zip_size "$ARTIFACT_SIZE" \
+            --argjson checksum_size "$CHECKSUM_SIZE" \
+            --arg zip "sha256:$ARTIFACT_SHA" \
+            --arg checksum "sha256:$CHECKSUM_SHA" \
+            'select(
+              (.draft == false)
+              and (.prerelease == false)
+              and (.name == $name)
+              and (.body == $body)
+              and ((.assets | map(.name) | sort) == ["presentation-studio.zip", "presentation-studio.zip.sha256"])
+              and (any(.assets[]; .name == "presentation-studio.zip" and .size == $zip_size and .digest == $zip))
+              and (any(.assets[]; .name == "presentation-studio.zip.sha256" and .size == $checksum_size and .digest == $checksum))
+            )' <<< "$published_json" > /dev/null
+          published="$(gh release view "$RELEASE_VERSION" --json isDraft,isPrerelease,tagName,url,assets,targetCommitish,name,body)"
+          jq -e --arg tag "$RELEASE_VERSION" --arg name "$expected_release_name" --arg body "$expected_release_notes" --argjson zip_size "$ARTIFACT_SIZE" --argjson checksum_size "$CHECKSUM_SIZE" '
+            select(
+              (.isDraft == false)
+              and (.isPrerelease == false)
+              and (.tagName == $tag)
+              and (.name == $name)
+              and (.body == $body)
+              and ((.assets | length) == 2)
+              and (any(.assets[]; .name == "presentation-studio.zip" and .size == $zip_size))
+              and (any(.assets[]; .name == "presentation-studio.zip.sha256" and .size == $checksum_size))
+            )
+          ' <<< "$published" > /dev/null
+      - name: Add or update fail-closed release blocker evidence
+        if: failure() && steps.candidate.outputs.eligible == 'true' && steps.app-token.outputs.token != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ steps.candidate.outputs.number }}
+        run: |
+          set -euo pipefail
+          marker="<!-- presentation-studio-auto-release-blocker -->"
+          reason="Auto-release failed closed. Inspect the workflow evidence for the failing gate."
+          if [[ -s "$RUNNER_TEMP/blocker.txt" ]]; then
+            reason="$(head -c 2000 "$RUNNER_TEMP/blocker.txt")"
+          fi
+          body="$marker
+
+          **manual-review required**
+
+          Release blocker: $reason
+
+          Workflow evidence: $WORKFLOW_EVIDENCE"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" \
+            --input - <<< '{"labels":["manual-review"]}' > /dev/null
+          comments="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100")"
+          comment_id="$(jq -r --arg marker "$marker" 'map(select(.body | contains($marker))) | first | .id // empty' <<< "$comments")"
+          if [[ -n "$comment_id" ]]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" \
+              --input - <<< "$(jq -cn --arg body "$body" '{body:$body}')" > /dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+              --input - <<< "$(jq -cn --arg body "$body" '{body:$body}')" > /dev/null
+          fi
+          readback="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER")"
+          jq -e 'select([.labels[].name] | index("manual-review") != null)' <<< "$readback" > /dev/null

@@ -64,6 +64,16 @@ def fail(message: str) -> None:
     raise AssertionError(message)
 
 
+def reject_symlinks(root: Path) -> None:
+    """Reject links before any package file is read or compared."""
+
+    if root.is_symlink():
+        fail(f"Package tree root must not be a symbolic link: {root}")
+    for path in root.rglob("*"):
+        if path.is_symlink():
+            fail(f"Package tree contains a symbolic link: {path}")
+
+
 def sha256_stream(stream) -> str:
     digest = hashlib.sha256()
     for chunk in iter(lambda: stream.read(1024 * 1024), b""):
@@ -85,6 +95,7 @@ def load_json(relative_path: str):
 
 
 def verify_structure() -> dict[str, int]:
+    reject_symlinks(SKILL_ROOT)
     required = [
         "SKILL.md",
         "catalog/products.json",
@@ -250,6 +261,7 @@ def verify_archive(
     checksum_path: Path = CHECKSUM_PATH,
     smoke_node: str | Path | None = None,
 ) -> dict[str, object]:
+    reject_symlinks(SKILL_ROOT)
     archive_path = archive_path.resolve()
     checksum_path = checksum_path.resolve()
     if not archive_path.is_file():
@@ -276,6 +288,9 @@ def verify_archive(
             pure = PurePosixPath(name)
             if "\\" in name or pure.is_absolute() or ".." in pure.parts:
                 fail(f"Unsafe archive path: {name}")
+            file_mode = (info.external_attr >> 16) & 0o170000
+            if file_mode == 0o120000:
+                fail(f"Symbolic-link archive member is not permitted: {name}")
             if not name.startswith("presentation-studio/"):
                 fail(f"Unexpected archive root: {name}")
             relative_name = name.removeprefix("presentation-studio/")
