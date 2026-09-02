@@ -743,11 +743,13 @@ It aggregates:
 - `align_embed_images.py` (`crop-images` / `fix-aspect` / `embed-images` aliases route here)
 - `flatten_tspan.py`
 
+EMF/WMF images referenced by a page are preserved as external references, never embedded or rasterized.
+
 `svg_final/` is an optional Step 7.2 preview artifact; the native exporter reads `svg_output/` and never requires it. It is the self-contained visual reference and may be manually inserted as an SVG picture.
 
 ## `svg_to_pptx.py`
 
-Convert project SVGs into PPTX.
+Convert project SVGs into PPTX. EMF/WMF images referenced from `svg_output/` are embedded as native `image/x-emf` / `image/x-wmf` media at full vector fidelity.
 
 Native formulas use the two markers owned by
 [`native-formula.md`](../../references/native-formula.md). A standalone block
@@ -856,7 +858,11 @@ Behavior:
   the converter resolves its Latin / East Asian role to a typeface that normally
   requires a custom installation. A recommended stack such as
   `"Microsoft YaHei", Arial, sans-serif` does not warn merely because it ends with a
-  generic fallback.
+  generic fallback. Face resolution writes one face per script: the first named
+  Latin face fills `latin`, the first named CJK face fills `ea` (and `latin` when
+  no Latin face is named), and a generic family fills `latin` only when it
+  precedes every named face. Fonts are never embedded; a missing face substitutes
+  on the viewer's machine.
 - Multiline text export modes:
   - Default: one editable frame retains authored breaks and disables PowerPoint wrapping. An ordinary generated frame uses PowerPoint's native resize-shape-to-fit-text behavior, so deleting a retained break expands the frame instead of leaving text outside it; imported exact frames and structured multiline placeholder carriers retain fixed-size behavior.
   - `--reflow-text`: eligible same-size lines become flowing prose that PowerPoint may rewrap; a font-size change, list marker, or accepted larger gap remains a paragraph boundary. Legacy `--merge-paragraphs` aliases this mode.
@@ -1033,7 +1039,7 @@ Validate SVG technical compliance.
 python3 scripts/svg_quality_checker.py projects/project/svg_output/01_cover.svg
 python3 scripts/svg_quality_checker.py projects/project/svg_output
 python3 scripts/svg_quality_checker.py projects/project
-python3 scripts/svg_quality_checker.py projects/project --stage first-page
+python3 scripts/svg_quality_checker.py projects/project --stage early
 python3 scripts/svg_quality_checker.py projects/project --stage final --json
 python3 scripts/svg_quality_checker.py projects/project --canonical-authoring --stage final --json
 python3 scripts/svg_quality_checker.py projects/project --format ppt169
@@ -1053,10 +1059,13 @@ Checks include:
 Warnings are advisory: they require no modification or acknowledgement and do
 not affect the command's zero exit status. Only errors block the quality gate.
 
-`--stage first-page` resolves only the first authored SVG and permits an incomplete
-future page roster. `--stage final` checks the complete project. With `--json`,
-the final stage writes `validation/svg_quality_report.json`, while the first-page
-stage writes `validation/svg_quality_first_page_report.json` so it cannot overwrite
+`--stage early` checks every authored SVG so far, each under the partial-roster
+rules, and permits an incomplete future page roster — this is the mid-roster
+gate command. `--stage first-page` resolves only the first authored SVG with
+the same permissions. `--stage final` checks the complete project. With
+`--json`, the final stage writes `validation/svg_quality_report.json`, while
+the early and first-page stages write `validation/svg_quality_early_report.json`
+and `validation/svg_quality_first_page_report.json` so they cannot overwrite
 the release gate (or use `--json-output`). The report separates
 release failures (`blocking`), changed/new advisories (`introduced`),
 prototype-identical diagnostics (`inherited`), and source-conversion losses

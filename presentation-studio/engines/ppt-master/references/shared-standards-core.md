@@ -2,13 +2,13 @@
 
 Mandatory reference for every route that authors or regenerates slide visuals through SVG. It owns XML validity, the closed generated-authoring surface, page closure, semantic grouping, shared visual-quality defaults, and fidelity vocabulary. The complete closed grammar that the checker and exporter enforce — mapping tables, accepted-but-warned spellings, rejection boundaries, import-side metadata — lives in [`svg-contract.md`](../scripts/docs/svg-contract.md); this file keeps the form the model writes.
 
-**Conditional module routing**:
+**Conditional module routing**: Default and Quick Generate load every module through [`executor-base.md`](./executor-base.md)'s routing table. Other SVG-authoring routes (Create Template, Edit Native PPTX) load:
 
 | Trigger | Load |
 |---|---|
-| Default or Quick Generate at the executor-base routing trigger (the first visual job beyond the everyday block); other routes when noncanonical/alpha paint, advanced line or text treatment, gradient/filter/effect, transform, freeform/radial geometry, or constructed style is used | [`svg-effects.md`](./svg-effects.md) |
-| A page will use a preset pattern fill or evaluate native chart/table replacement | [`native-data-interface.md`](./native-data-interface.md) before deciding eligibility or emitting metadata |
-| Default structured lock, or Quick installed Layout/Deck structured authoring | [`pptx-structure-interface.md`](./pptx-structure-interface.md) |
+| Noncanonical/alpha paint, advanced line or text treatment, gradient/filter/effect, transform, freeform/radial geometry, or constructed style | [`svg-effects.md`](./svg-effects.md) |
+| A preset pattern fill, or native chart/table data is authored or edited | [`native-data-interface.md`](./native-data-interface.md) before deciding eligibility or emitting metadata |
+| Structured Master/Layout/slot authoring | [`pptx-structure-interface.md`](./pptx-structure-interface.md) |
 
 Design defaults that apply when no higher authority speaks are collected in §6.
 
@@ -165,7 +165,7 @@ Use the already locked canvas id and exact viewBox. [`canvas-formats.md`](canvas
 Semantic markers are minimal compiler hints. Flat pages declare one root `data-pptx-page-role` and omit Master/Layout/layer/placeholder markers. Structured pages carry their final root identity, layer atoms, slots, and native-object metadata from authoring start and omit `data-pptx-page-role`. Use `data-pptx-role` with a stable `id` only when no specialized marker expresses page-frame behavior. Keep ordinary visible content in SVG attributes/text; [`semantic-svg.md`](semantic-svg.md) owns the vocabulary.
 
 - **Canvas authority**: new authoring writes `viewBox="0 0 W H"` with positive integer pixels from the lock, or from the first SVG under `quick-generate`; all pages and Layout prototypes in one build share it, optional root `width`/`height` never override it, and a root `<svg>` transform is forbidden. Export quantizes once at `1 SVG px = 9,525 EMU`.
-- **Font portability**: resolve an explicit user/template delivery target first; otherwise default to Windows Microsoft PowerPoint with locale following the deck's primary language. Exported Latin/EA faces must be installed or approved on that target. The authoring host's fonts affect SVG preview and measurement only and MUST NOT select PPTX faces; a local counterpart may appear only as a preview tail that preserves the same export resolution. `@font-face` remains forbidden; the typography contract lives in [`strategist.md §g`](strategist.md).
+- **Font portability**: resolve an explicit user/template delivery target first; otherwise default to Windows Microsoft PowerPoint with locale following the deck's primary language. Exported Latin/EA faces must be installed or approved on that target. The authoring host's fonts affect SVG preview and measurement only and MUST NOT select PPTX faces; a local counterpart may appear only as a preview tail that preserves the same export resolution. `@font-face` remains forbidden; the family choice belongs to the planning role ([`plan-core.md`](plan-core.md) §6.2, shared by Default and Quick).
 - **Icon placeholders**: `<use data-icon="library/name">` is a pipeline-specific form, distinct from local SVG reuse. Follow the contract in [`../templates/icons/README.md`](../templates/icons/README.md).
 - **Local reuse**: ordinary same-document `<use>` follows §1.3.
 
