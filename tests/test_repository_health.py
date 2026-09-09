@@ -105,7 +105,7 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
 
             self.assertIn(
                 "reviewed action usage count mismatch: "
-                "actions/setup-python expected 4 got 3",
+                "actions/setup-python expected 5 got 4",
                 issues,
             )
 
@@ -343,6 +343,16 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             "820762786026740c76f36085b0efc47a31fe5020 # v7.0.0\n"
             "  - uses: actions/create-github-app-token@"
             "bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0\n",
+            encoding="utf-8",
+        )
+        (workflows / "portability-pilot.yml").write_text(
+            "steps:\n"
+            "  - uses: actions/checkout@"
+            "3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n"
+            "  - uses: actions/setup-python@"
+            "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0\n"
+            "  - uses: actions/upload-artifact@"
+            "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1\n",
             encoding="utf-8",
         )
         (root / ".github" / "dependabot.yml").write_text(

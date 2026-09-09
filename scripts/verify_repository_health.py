@@ -59,10 +59,10 @@ REVIEWED_ACTIONS = {
 }
 
 EXPECTED_ACTION_COUNTS = {
-    "actions/checkout": 5,
-    "actions/setup-python": 4,
+    "actions/checkout": 6,
+    "actions/setup-python": 5,
     "actions/setup-node": 3,
-    "actions/upload-artifact": 1,
+    "actions/upload-artifact": 2,
     "actions/create-github-app-token": 3,
 }
 
