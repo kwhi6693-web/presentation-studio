@@ -115,6 +115,8 @@ jobs:
       - name: Check selected stable release
         id: release
         shell: bash
+        env:
+          UPSTREAM_GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
           sync_dir="$RUNNER_TEMP/presentation-studio-upstream/$SOURCE"
@@ -168,6 +170,8 @@ jobs:
         id: sync
         if: steps.release.outputs.update == 'true'
         shell: bash
+        env:
+          UPSTREAM_GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
           sync_dir="$RUNNER_TEMP/presentation-studio-upstream/$SOURCE"

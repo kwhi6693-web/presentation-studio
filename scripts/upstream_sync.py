@@ -124,10 +124,12 @@ class GitHubClient:
         token: str | None = None,
         timeout: int = 30,
         sleeper: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.time,
     ) -> None:
         self._token = token
         self._timeout = timeout
         self._sleeper = sleeper
+        self._clock = clock
 
     @staticmethod
     def _is_release_discovery_path(path: str) -> bool:
@@ -138,15 +140,46 @@ class GitHubClient:
         )
 
     @staticmethod
-    def _retry_after(error: urllib.error.HTTPError) -> float | None:
-        value = error.headers.get("Retry-After") if error.headers else None
+    def _validate_server_retry_delay(delay: float) -> float | None:
+        if not math.isfinite(delay) or delay < 0:
+            return None
+        if delay > MAX_GITHUB_RETRY_DELAY_SECONDS:
+            raise SyncError(
+                "server-requested retry delay "
+                f"{delay:g}s exceeds local maximum "
+                f"{MAX_GITHUB_RETRY_DELAY_SECONDS:g}s; refusing early retry"
+            )
+        return delay
+
+    def _retry_after(self, error: urllib.error.HTTPError) -> float | None:
+        headers = error.headers
+        if not headers:
+            return None
+        value = headers.get("Retry-After")
         try:
             delay = float(value)
         except (TypeError, ValueError):
-            return None
-        if not math.isfinite(delay) or delay < 0:
-            return None
-        return min(delay, MAX_GITHUB_RETRY_DELAY_SECONDS)
+            reset_at = headers.get("X-RateLimit-Reset")
+            try:
+                delay = float(reset_at) - self._clock()
+            except (TypeError, ValueError):
+                return None
+        return self._validate_server_retry_delay(delay)
+
+    @staticmethod
+    def _is_rate_limited(
+        error: urllib.error.HTTPError,
+        response_message: str | None,
+    ) -> bool:
+        if error.code == 429:
+            return True
+        if error.code != 403:
+            return False
+        remaining = error.headers.get("X-RateLimit-Remaining") if error.headers else None
+        if remaining is not None and remaining.strip() == "0":
+            return True
+        message = response_message.casefold() if response_message else ""
+        return "rate limit" in message or "abuse detection" in message
 
     @staticmethod
     def _retry_delay(attempt: int, retry_after: float | None = None) -> float:
@@ -190,8 +223,10 @@ class GitHubClient:
                 http_status_history.append(error.code)
                 response_message = self._response_message(error)
                 category = f"HTTP {error.code}"
-                retryable = error.code == 429 or error.code >= 500 or (
-                    error.code == 404 and self._is_release_discovery_path(path)
+                retryable = (
+                    self._is_rate_limited(error, response_message)
+                    or error.code >= 500
+                    or (error.code == 404 and self._is_release_discovery_path(path))
                 )
                 retry_after = self._retry_after(error) if retryable else None
             except (urllib.error.URLError, TimeoutError, OSError):
