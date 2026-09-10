@@ -139,6 +139,18 @@ class GitHubClient:
             or "/git/tags/" in path
         )
 
+    @staticmethod
+    def _validate_server_retry_delay(delay: float) -> float | None:
+        if not math.isfinite(delay) or delay < 0:
+            return None
+        if delay > MAX_GITHUB_RETRY_DELAY_SECONDS:
+            raise SyncError(
+                "server-requested retry delay "
+                f"{delay:g}s exceeds local maximum "
+                f"{MAX_GITHUB_RETRY_DELAY_SECONDS:g}s; refusing early retry"
+            )
+        return delay
+
     def _retry_after(self, error: urllib.error.HTTPError) -> float | None:
         headers = error.headers
         if not headers:
@@ -152,9 +164,7 @@ class GitHubClient:
                 delay = float(reset_at) - self._clock()
             except (TypeError, ValueError):
                 return None
-        if not math.isfinite(delay) or delay < 0:
-            return None
-        return min(delay, MAX_GITHUB_RETRY_DELAY_SECONDS)
+        return self._validate_server_retry_delay(delay)
 
     @staticmethod
     def _is_rate_limited(

@@ -68,6 +68,11 @@ synchronizer as `UPSTREAM_GITHUB_TOKEN` for upstream release, tag, comparison, a
 archive reads. The repository-scoped `GITHUB_TOKEN` is not used for cross-repository
 upstream access.
 
+Retryable API responses honor a valid `Retry-After` or rate-limit reset hint.
+The synchronizer makes at most three total attempts; if the server-requested
+wait exceeds the five-second local retry cap, it fails explicitly instead of
+retrying early.
+
 ## Commands
 
 Read-only status check for all sources:

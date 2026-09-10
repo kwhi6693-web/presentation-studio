@@ -112,13 +112,13 @@ class GitHubClientRetryTests(unittest.TestCase):
         self.assertEqual(urlopen.call_count, 2)
         self.assertEqual(sleeps, [1.0])
 
-    def test_retries_rate_limit_and_server_errors_with_capped_backoff(self) -> None:
+    def test_retries_rate_limit_and_server_errors_with_bounded_backoff(self) -> None:
         sleeps: list[float] = []
         client = GitHubClient(sleeper=sleeps.append)
         with patch(
             "scripts.upstream_sync.urllib.request.urlopen",
             side_effect=[
-                http_error(429, retry_after="999"),
+                http_error(429, retry_after="5"),
                 http_error(500),
                 JsonResponse(b'{"status": "ahead"}'),
             ],
@@ -182,6 +182,53 @@ class GitHubClientRetryTests(unittest.TestCase):
 
         self.assertEqual(payload, {"ok": True})
         self.assertEqual(sleeps, [4.0])
+
+    def test_fails_without_retry_when_retry_after_exceeds_local_cap(self) -> None:
+        sleeps: list[float] = []
+        client = GitHubClient(sleeper=sleeps.append)
+        with patch(
+            "scripts.upstream_sync.urllib.request.urlopen",
+            side_effect=[
+                http_error(
+                    403,
+                    retry_after="6",
+                    message="You have exceeded a secondary rate limit.",
+                ),
+                JsonResponse(b'{"ok": true}'),
+            ],
+        ) as urlopen, self.assertRaisesRegex(
+            SyncError,
+            r"server-requested retry delay 6s exceeds local maximum 5s",
+        ):
+            client.get_json("/repos/author/skill/releases/latest")
+
+        self.assertEqual(urlopen.call_count, 1)
+        self.assertEqual(sleeps, [])
+
+    def test_fails_without_retry_when_rate_limit_reset_exceeds_local_cap(self) -> None:
+        sleeps: list[float] = []
+        client = GitHubClient(sleeper=sleeps.append, clock=lambda: 100.0)
+        with patch(
+            "scripts.upstream_sync.urllib.request.urlopen",
+            side_effect=[
+                http_error(
+                    403,
+                    message="API rate limit exceeded",
+                    headers={
+                        "X-RateLimit-Remaining": "0",
+                        "X-RateLimit-Reset": "106",
+                    },
+                ),
+                JsonResponse(b'{"ok": true}'),
+            ],
+        ) as urlopen, self.assertRaisesRegex(
+            SyncError,
+            r"server-requested retry delay 6s exceeds local maximum 5s",
+        ):
+            client.get_json("/repos/author/skill/releases/latest")
+
+        self.assertEqual(urlopen.call_count, 1)
+        self.assertEqual(sleeps, [])
 
     def test_does_not_retry_a_permission_403(self) -> None:
         sleeps: list[float] = []
