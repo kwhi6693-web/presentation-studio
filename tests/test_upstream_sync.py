@@ -72,11 +72,18 @@ def http_error(
     status: int,
     retry_after: str | None = None,
     message: str | None = None,
+    headers: dict[str, str] | None = None,
 ) -> urllib.error.HTTPError:
-    headers = {} if retry_after is None else {"Retry-After": retry_after}
+    response_headers = {} if headers is None else dict(headers)
+    if retry_after is not None:
+        response_headers["Retry-After"] = retry_after
     body = b"" if message is None else json.dumps({"message": message}).encode("utf-8")
     return urllib.error.HTTPError(
-        "https://api.github.com/test", status, "fixture error", headers, io.BytesIO(body)
+        "https://api.github.com/test",
+        status,
+        "fixture error",
+        response_headers,
+        io.BytesIO(body),
     )
 
 
@@ -133,6 +140,65 @@ class GitHubClientRetryTests(unittest.TestCase):
 
         self.assertEqual(payload, {"ok": True})
         self.assertEqual(sleeps, [3.0])
+
+    def test_retries_rate_limited_403_using_retry_after(self) -> None:
+        sleeps: list[float] = []
+        client = GitHubClient(sleeper=sleeps.append)
+        with patch(
+            "scripts.upstream_sync.urllib.request.urlopen",
+            side_effect=[
+                http_error(
+                    403,
+                    retry_after="3",
+                    message="You have exceeded a secondary rate limit.",
+                ),
+                JsonResponse(b'{"ok": true}'),
+            ],
+        ) as urlopen:
+            payload = client.get_json("/repos/author/skill/releases/latest")
+
+        self.assertEqual(payload, {"ok": True})
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(sleeps, [3.0])
+
+    def test_retries_primary_rate_limited_403_until_reset_header(self) -> None:
+        sleeps: list[float] = []
+        client = GitHubClient(sleeper=sleeps.append, clock=lambda: 100.0)
+        with patch(
+            "scripts.upstream_sync.urllib.request.urlopen",
+            side_effect=[
+                http_error(
+                    403,
+                    message="API rate limit exceeded",
+                    headers={
+                        "X-RateLimit-Remaining": "0",
+                        "X-RateLimit-Reset": "104",
+                    },
+                ),
+                JsonResponse(b'{"ok": true}'),
+            ],
+        ):
+            payload = client.get_json("/repos/author/skill/releases/latest")
+
+        self.assertEqual(payload, {"ok": True})
+        self.assertEqual(sleeps, [4.0])
+
+    def test_does_not_retry_a_permission_403(self) -> None:
+        sleeps: list[float] = []
+        client = GitHubClient(sleeper=sleeps.append)
+        with patch(
+            "scripts.upstream_sync.urllib.request.urlopen",
+            side_effect=http_error(
+                403,
+                message="Resource not accessible by integration",
+            ),
+        ) as urlopen, self.assertRaisesRegex(
+            SyncError, r"terminal HTTP 403 after 1 attempt"
+        ):
+            client.get_json("/repos/author/skill/releases/latest")
+
+        self.assertEqual(urlopen.call_count, 1)
+        self.assertEqual(sleeps, [])
 
     def test_retries_transient_transport_error_then_returns_response(self) -> None:
         sleeps: list[float] = []

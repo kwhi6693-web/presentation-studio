@@ -104,6 +104,16 @@ class UpstreamWorkflowContractTests(unittest.TestCase):
         self.assertIn("Trusted GitHub App ID is missing", self.workflow)
         self.assertIn("Trusted GitHub App private key is missing", self.workflow)
 
+    def test_sync_uses_the_trusted_app_token_for_upstream_api_reads(self) -> None:
+        expected = "UPSTREAM_GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}"
+        check_start = self.workflow.index("      - name: Check selected stable release")
+        check_end = self.workflow.index("      - name: Select the source-specific synchronization branch")
+        stage_start = self.workflow.index("      - name: Stage the selected upstream release")
+        stage_end = self.workflow.index("      - name: Verify repository health after source update")
+
+        self.assertIn(expected, self.workflow[check_start:check_end])
+        self.assertIn(expected, self.workflow[stage_start:stage_end])
+
     def test_pr_body_contains_source_provenance_scope_and_verification_evidence(self) -> None:
         report = {
             "status": "PASS",
