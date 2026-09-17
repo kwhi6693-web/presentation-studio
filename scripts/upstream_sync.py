@@ -1146,6 +1146,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     scope_parser.add_argument("--source", required=True)
     scope_parser.add_argument("--paths-file", type=Path, required=True)
+    scope_parser.add_argument("--null", action="store_true", help="Read NUL-terminated Git paths")
     render_parser = subparsers.add_parser(
         "render-pr-body", help="Render source-specific synchronization PR evidence"
     )
@@ -1162,11 +1163,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "verify-scope":
             source = select_sources(sources, [args.source], require_single=True)[0]
             try:
-                paths = [
-                    line.strip()
-                    for line in args.paths_file.read_text(encoding="utf-8").splitlines()
-                    if line.strip()
-                ]
+                if args.null:
+                    data = args.paths_file.read_bytes()
+                    if data and (not data.endswith(b"\0") or b"" in data[:-1].split(b"\0")):
+                        raise SyncError("Changed-path list must contain NUL-terminated nonempty paths")
+                    paths = [os.fsdecode(path) for path in data[:-1].split(b"\0")] if data else []
+                else:
+                    paths = [
+                        line.strip()
+                        for line in args.paths_file.read_text(encoding="utf-8").splitlines()
+                        if line.strip()
+                    ]
             except OSError as error:
                 raise SyncError("Unable to read changed-path list") from error
             validate_source_paths(source, paths)
