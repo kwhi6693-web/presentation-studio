@@ -1269,9 +1269,12 @@ class GitPathScopeRegressionTests(unittest.TestCase):
             git('-c', 'user.name=Test', '-c', 'user.email=test@example.com',
                 'commit', '--allow-empty', '-m', 'baseline')
             prefix = 'presentation-studio/engines/ppt-master/templates/decks/'
-            paths = [prefix + name + '/03_chapter.svg' for name in (
-                '中国电信', 'space name', 'quote"name', 'line\nbreak', 'tab\tname', ' trailing ',
-            )]
+            names = ['中国电信', 'space name']
+            # Windows cannot create quotes, control characters, or trailing spaces.
+            # The parser-only test below covers these names on every platform.
+            if os.name != 'nt':
+                names.extend(['quote"name', 'line\nbreak', 'tab\tname', ' trailing '])
+            paths = [prefix + name + '/03_chapter.svg' for name in names]
             for name in paths:
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -1294,6 +1297,21 @@ class GitPathScopeRegressionTests(unittest.TestCase):
                 self.assertEqual(main(['verify-scope', '--source', 'ppt-master',
                                        '--null', '--paths-file', str(path_file)]), 1)
                 self.assertIn('Path outside the managed paths', error.getvalue())
+
+    def test_null_parser_preserves_special_names_on_every_platform(self) -> None:
+        paths = [
+            'presentation-studio/engines/ppt-master/templates/' + name
+            for name in ('中国电信.svg', 'space name.svg', 'quote"name.svg',
+                         'line\nbreak.svg', 'tab\tname.svg', ' trailing.svg ')
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            path_file = Path(temporary) / 'paths.bin'
+            path_file.write_bytes(b''.join(path.encode('utf-8') + b'\0' for path in paths))
+            with patch('scripts.upstream_sync.validate_source_paths',
+                       wraps=validate_source_paths) as validate:
+                self.assertEqual(main(['verify-scope', '--source', 'ppt-master',
+                                       '--null', '--paths-file', str(path_file)]), 0)
+                self.assertEqual(validate.call_args.args[1], paths)
 
     def test_null_input_rejects_malformed_lists_and_accepts_empty_diff(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
