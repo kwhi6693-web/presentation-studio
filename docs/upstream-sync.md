@@ -63,6 +63,16 @@ These are CI/system capabilities, not undeclared root Python dependencies. The
 workflow keeps generated packages and reports under `$RUNNER_TEMP`, and stages only
 the source-specific allowlist after all post-update gates pass.
 
+The workflow passes its short-lived trusted GitHub App installation token to the
+synchronizer as `UPSTREAM_GITHUB_TOKEN` for upstream release, tag, comparison, and
+archive reads. The repository-scoped `GITHUB_TOKEN` is not used for cross-repository
+upstream access.
+
+Retryable API responses honor a valid `Retry-After` or rate-limit reset hint.
+The synchronizer makes at most three total attempts; if the server-requested
+wait exceeds the five-second local retry cap, it fails explicitly instead of
+retrying early.
+
 ## Commands
 
 Read-only status check for all sources:

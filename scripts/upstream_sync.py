@@ -124,10 +124,12 @@ class GitHubClient:
         token: str | None = None,
         timeout: int = 30,
         sleeper: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.time,
     ) -> None:
         self._token = token
         self._timeout = timeout
         self._sleeper = sleeper
+        self._clock = clock
 
     @staticmethod
     def _is_release_discovery_path(path: str) -> bool:
@@ -138,15 +140,46 @@ class GitHubClient:
         )
 
     @staticmethod
-    def _retry_after(error: urllib.error.HTTPError) -> float | None:
-        value = error.headers.get("Retry-After") if error.headers else None
+    def _validate_server_retry_delay(delay: float) -> float | None:
+        if not math.isfinite(delay) or delay < 0:
+            return None
+        if delay > MAX_GITHUB_RETRY_DELAY_SECONDS:
+            raise SyncError(
+                "server-requested retry delay "
+                f"{delay:g}s exceeds local maximum "
+                f"{MAX_GITHUB_RETRY_DELAY_SECONDS:g}s; refusing early retry"
+            )
+        return delay
+
+    def _retry_after(self, error: urllib.error.HTTPError) -> float | None:
+        headers = error.headers
+        if not headers:
+            return None
+        value = headers.get("Retry-After")
         try:
             delay = float(value)
         except (TypeError, ValueError):
-            return None
-        if not math.isfinite(delay) or delay < 0:
-            return None
-        return min(delay, MAX_GITHUB_RETRY_DELAY_SECONDS)
+            reset_at = headers.get("X-RateLimit-Reset")
+            try:
+                delay = float(reset_at) - self._clock()
+            except (TypeError, ValueError):
+                return None
+        return self._validate_server_retry_delay(delay)
+
+    @staticmethod
+    def _is_rate_limited(
+        error: urllib.error.HTTPError,
+        response_message: str | None,
+    ) -> bool:
+        if error.code == 429:
+            return True
+        if error.code != 403:
+            return False
+        remaining = error.headers.get("X-RateLimit-Remaining") if error.headers else None
+        if remaining is not None and remaining.strip() == "0":
+            return True
+        message = response_message.casefold() if response_message else ""
+        return "rate limit" in message or "abuse detection" in message
 
     @staticmethod
     def _retry_delay(attempt: int, retry_after: float | None = None) -> float:
@@ -190,8 +223,10 @@ class GitHubClient:
                 http_status_history.append(error.code)
                 response_message = self._response_message(error)
                 category = f"HTTP {error.code}"
-                retryable = error.code == 429 or error.code >= 500 or (
-                    error.code == 404 and self._is_release_discovery_path(path)
+                retryable = (
+                    self._is_rate_limited(error, response_message)
+                    or error.code >= 500
+                    or (error.code == 404 and self._is_release_discovery_path(path))
                 )
                 retry_after = self._retry_after(error) if retryable else None
             except (urllib.error.URLError, TimeoutError, OSError):
@@ -1111,6 +1146,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     scope_parser.add_argument("--source", required=True)
     scope_parser.add_argument("--paths-file", type=Path, required=True)
+    scope_parser.add_argument("--null", action="store_true", help="Read NUL-terminated Git paths")
     render_parser = subparsers.add_parser(
         "render-pr-body", help="Render source-specific synchronization PR evidence"
     )
@@ -1127,11 +1163,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "verify-scope":
             source = select_sources(sources, [args.source], require_single=True)[0]
             try:
-                paths = [
-                    line.strip()
-                    for line in args.paths_file.read_text(encoding="utf-8").splitlines()
-                    if line.strip()
-                ]
+                if args.null:
+                    data = args.paths_file.read_bytes()
+                    if data and (not data.endswith(b"\0") or b"" in data[:-1].split(b"\0")):
+                        raise SyncError("Changed-path list must contain NUL-terminated nonempty paths")
+                    paths = [os.fsdecode(path) for path in data[:-1].split(b"\0")] if data else []
+                else:
+                    paths = [
+                        line.strip()
+                        for line in args.paths_file.read_text(encoding="utf-8").splitlines()
+                        if line.strip()
+                    ]
             except OSError as error:
                 raise SyncError("Unable to read changed-path list") from error
             validate_source_paths(source, paths)

@@ -294,11 +294,11 @@ jobs:
           SOURCE: ${{ steps.policy.outputs.source }}
         run: |
           set -euo pipefail
-          git diff --no-renames --name-only origin/main...HEAD > "$RUNNER_TEMP/changed-paths.txt"
+          git diff --no-renames --name-only -z origin/main...HEAD > "$RUNNER_TEMP/changed-paths.txt"
           gate_status=0
           if ! python scripts/upstream_sync.py verify-scope \
             --source "$SOURCE" \
-            --paths-file "$RUNNER_TEMP/changed-paths.txt"; then
+            --null --paths-file "$RUNNER_TEMP/changed-paths.txt"; then
             gate_status=1
           fi
           if ((gate_status == 0)) && ! python scripts/automation_policy.py verify-provenance \
