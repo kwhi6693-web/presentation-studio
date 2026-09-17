@@ -1257,5 +1257,56 @@ class SourceIsolationContractTests(unittest.TestCase):
         )
 
 
+class GitPathScopeRegressionTests(unittest.TestCase):
+    def test_real_git_diff_preserves_special_paths_and_rejects_outside_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+
+            def git(*args: str) -> bytes:
+                return subprocess.check_output(['git', '-C', str(root), *args], stderr=subprocess.DEVNULL)
+
+            git('init')
+            git('-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                'commit', '--allow-empty', '-m', 'baseline')
+            prefix = 'presentation-studio/engines/ppt-master/templates/decks/'
+            paths = [prefix + name + '/03_chapter.svg' for name in (
+                '中国电信', 'space name', 'quote"name', 'line\nbreak', 'tab\tname', ' trailing ',
+            )]
+            for name in paths:
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('<svg/>', encoding='utf-8')
+            git('add', '--', '.')
+            path_file = root / 'paths.bin'
+            for quote_paths in ('true', 'false'):
+                with self.subTest(quote_paths=quote_paths):
+                    data = git('-c', 'core.quotePath=' + quote_paths, 'diff', '--cached',
+                               '--no-renames', '--name-only', '-z')
+                    self.assertEqual(set(data[:-1].decode().split('\0')), set(paths))
+                    path_file.write_bytes(data)
+                    self.assertEqual(main(['verify-scope', '--source', 'ppt-master',
+                                           '--null', '--paths-file', str(path_file)]), 0)
+            outside = root / 'outside.txt'
+            outside.write_text('must be rejected', encoding='utf-8')
+            git('add', '--', 'outside.txt')
+            path_file.write_bytes(git('diff', '--cached', '--no-renames', '--name-only', '-z'))
+            with patch('sys.stderr', new_callable=io.StringIO) as error:
+                self.assertEqual(main(['verify-scope', '--source', 'ppt-master',
+                                       '--null', '--paths-file', str(path_file)]), 1)
+                self.assertIn('Path outside the managed paths', error.getvalue())
+
+    def test_null_input_rejects_malformed_lists_and_accepts_empty_diff(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path_file = Path(temporary) / 'paths.bin'
+            for data in (b'unterminated', b'\0', b'valid\0\0'):
+                with self.subTest(data=data), patch('sys.stderr', new_callable=io.StringIO):
+                    path_file.write_bytes(data)
+                    self.assertEqual(main(['verify-scope', '--source', 'ppt-master',
+                                           '--null', '--paths-file', str(path_file)]), 1)
+            path_file.write_bytes(b'')
+            self.assertEqual(main(['verify-scope', '--source', 'ppt-master',
+                                   '--null', '--paths-file', str(path_file)]), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

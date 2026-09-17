@@ -188,8 +188,8 @@ jobs:
         run: |
           set -euo pipefail
           base_sha="$(git rev-parse "$CANDIDATE_SHA^")"
-          git diff --no-renames --name-only "$base_sha" "$CANDIDATE_SHA" > "$RUNNER_TEMP/release-changed-paths.txt"
-          python scripts/upstream_sync.py verify-scope --source "$SOURCE" --paths-file "$RUNNER_TEMP/release-changed-paths.txt"
+          git diff --no-renames --name-only -z "$base_sha" "$CANDIDATE_SHA" > "$RUNNER_TEMP/release-changed-paths.txt"
+          python scripts/upstream_sync.py verify-scope --source "$SOURCE" --null --paths-file "$RUNNER_TEMP/release-changed-paths.txt"
           python scripts/automation_policy.py verify-provenance \
             --source "$SOURCE" \
             --base-ref "$base_sha" > "$RUNNER_TEMP/release-provenance.json"

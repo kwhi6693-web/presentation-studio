@@ -221,8 +221,8 @@ jobs:
         run: |
           set -euo pipefail
           sync_dir="$RUNNER_TEMP/presentation-studio-upstream/$SOURCE"
-          git diff --no-renames --name-only origin/main > "$sync_dir/changed-paths.txt"
-          python scripts/upstream_sync.py verify-scope --source "$SOURCE" --paths-file "$sync_dir/changed-paths.txt"
+          git diff --no-renames --name-only -z origin/main > "$sync_dir/changed-paths.txt"
+          python scripts/upstream_sync.py verify-scope --source "$SOURCE" --null --paths-file "$sync_dir/changed-paths.txt"
       - name: Stage only reported source paths
         id: changes
         if: steps.sync.outputs.changed == 'true'
@@ -236,8 +236,8 @@ jobs:
             exit 1
           fi
           git add -- "${staging_paths[@]}"
-          git diff --cached --no-renames --name-only > "$sync_dir/staged-paths.txt"
-          python scripts/upstream_sync.py verify-scope --source "$SOURCE" --paths-file "$sync_dir/staged-paths.txt"
+          git diff --cached --no-renames --name-only -z > "$sync_dir/staged-paths.txt"
+          python scripts/upstream_sync.py verify-scope --source "$SOURCE" --null --paths-file "$sync_dir/staged-paths.txt"
           git diff --cached --check
           if git diff --cached --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"

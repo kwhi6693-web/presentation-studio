@@ -18,6 +18,20 @@ class UpstreamWorkflowContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.workflow = WORKFLOW.read_text(encoding="utf-8")
 
+    def test_scope_checks_use_null_delimited_git_paths(self) -> None:
+        for workflow in (WORKFLOW, AUTO_MERGE_WORKFLOW, AUTO_RELEASE_WORKFLOW):
+            with self.subTest(workflow=workflow.name):
+                content = workflow.read_text(encoding="utf-8")
+                producers = [line for line in content.splitlines()
+                             if "git diff " in line and "--no-renames --name-only" in line]
+                consumers = [line for line in content.splitlines() if "--paths-file" in line]
+                self.assertTrue(producers)
+                self.assertEqual(len(producers), len(consumers))
+                for line in producers:
+                    self.assertIn("--name-only -z", line)
+                for line in consumers:
+                    self.assertIn("--null --paths-file", line)
+
     def test_matrix_isolates_all_four_upstream_sources(self) -> None:
         matrix_start = self.workflow.index("matrix:")
         matrix_section = self.workflow[matrix_start : self.workflow.index("runs-on:", matrix_start)]
