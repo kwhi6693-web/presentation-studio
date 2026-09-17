@@ -14,3 +14,6 @@ presentation-studio/** -text
 *.woff2 binary
 *.ttf binary
 *.otf binary
+# Preserve this upstream fixture verbatim; its release includes a blank EOF line.
+# Other whitespace errors (including trailing spaces) remain checked.
+presentation-studio/engines/ppt-master/scripts/tests/test_preview_browser.py whitespace=-blank-at-eof
