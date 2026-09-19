@@ -117,7 +117,7 @@ A/B describe a hero or a local single-subject region; C/D are hero-page composit
 
 A sheet generates compatible transparent **illustration**, **illustrated-icon**, or **decorative lettering** elements sharing rendering, deck-color treatment, and finish; subjects, silhouettes, weights, and jobs may differ, and SVG composes after slicing. Lettering is stable Layer 1 artwork, never page copy turned into an image.
 
-**Default — batch compatible elements; split when separate generation improves the result**: group illustrated-icon cues normally; group lettering by compatible letterform character and treatment (not font name); split for style, geometry, detail, quality, or semantic precision. A single element may use a keyed `1x1` sheet. Full-canvas or opaque images take the normal §4.1 path.
+**Default — batch compatible elements; split when separate generation improves the result**: group illustrated-icon cues normally; group lettering by compatible letterform character and treatment (not font name); split for style, geometry, detail, quality, or semantic precision. A single element may use a keyed `1x1` sheet. Full-canvas or opaque images take the normal §4.1 path; several opaque photos for a multi-cell layout may share one sheet under the same contract, sliced by `--grid` with `--inset` and no key color, `--trim`, or `--alpha`.
 
 **Hard rule — a sheet is a generation source, not a slide asset**: never referenced from SVG; out of `spec_lock.md images` in Default, generation-only in Quick's context and manifest; only sliced element rows are placed.
 
@@ -157,8 +157,8 @@ python3 scripts/slice_images.py <project>/images/illus_sheet.png --grid 2x3 \
     --names team,product,customer,growth,risk,vision --trim --alpha \
     --bg "${SHEET_KEY_HEX}" --strict-alpha
 # Generated sheets arrive through JPEG, so the ground is never exactly the pure
-# key: the first run usually fails with a measured border line — rerun with the
-# --bg / --tolerance it names (the measured ground, which skips despill).
+# key: when every finding is measured key noise the tool retries once with the
+# tolerance it measured; content touching a cell edge still fails and stays yours.
 ```
 
 `--names` count equals `rows*cols`; `--strict-alpha` writes nothing on an incomplete cut. Three quality constraints:

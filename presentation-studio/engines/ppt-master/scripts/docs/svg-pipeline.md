@@ -801,7 +801,7 @@ Convert project SVGs into PPTX. EMF/WMF images referenced from `svg_output/` are
 
 Each exported object is named after `data-pptx-shape-name`, else its SVG `id` (or `data-name`), else a positional `Group N` / `TextBox N`; forced-Morph `!!` names still win. The PowerPoint Selection and Animation panes therefore read like the source SVG.
 
-The deck language — the lock's `primary_language`, else the first page's root `<svg lang="...">` (Quick's channel), else `--primary-language TAG` — tags base-template default text (new text boxes, master and layout placeholders) and docProps; a right-to-left language also makes those defaults right-to-left and right-aligned, and the theme's script font for that language (`Arab`, `Hebr`, `Thai`, `Deva`, ...) points at the locked face, which a lockless roster takes from its pages. A run of Latin letters inside a non-Latin deck is tagged `en-US`.
+The deck language — the lock's `primary_language`, else the first page's root `<svg lang="...">` (Quick's channel), else `--primary-language TAG` — tags base-template default text (new text boxes, master and layout placeholders) and docProps; a right-to-left language also makes those defaults right-to-left and right-aligned, and the theme's script font for that language (`Arab`, `Hebr`, `Thai`, `Deva`, ...) points at the locked face, which a lockless roster takes from its pages. A run of Latin letters inside a non-Latin deck is tagged `en-US`; the tag is per run, so an English phrase sharing one run with CJK text (`中文 · English` in a single `<text>` with one style) takes the deck language — give it its own `<tspan>` with a distinct attribute when spell-check and hyphenation should treat it as English.
 
 Native formulas use the two markers owned by
 [`native-formula.md`](../../references/native-formula.md). A standalone block
@@ -1069,10 +1069,13 @@ Requirements:
 
 `text_measure.py` imports the same single-line DrawingML width estimator used by
 the SVG quality checker.
-Use Arial, Times New Roman, Georgia, Verdana, or Calibri for bundled per-glyph
-advance measurements from `svg_to_pptx/drawingml/font_advances.json` in regular,
-bold, italic, and bold-italic styles. Expect other families to keep the
-class-average estimate, with the existing fixed advances for monospaced faces.
+Use Arial, Times New Roman, Georgia, Verdana, Calibri, Cambria, Trebuchet MS, or
+Garamond for bundled per-glyph advance measurements from
+`svg_to_pptx/drawingml/font_advances.json` in regular, bold, italic, and
+bold-italic styles; Tahoma and Segoe UI carry regular and bold only (Segoe UI is
+measured from Selawik, Microsoft's OFL metric-compatible replacement). Expect a
+missing style or another family to keep the class-average estimate, with the
+existing fixed advances for monospaced faces.
 
 - `measure` prints one `width<TAB>text` line per input, or a JSON array with
   `--json`.
