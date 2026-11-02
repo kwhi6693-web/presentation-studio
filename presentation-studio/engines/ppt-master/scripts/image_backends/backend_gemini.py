@@ -39,7 +39,9 @@ from image_backends.backend_common import (
     MAX_RETRIES,
     is_permanent_error,
     is_rate_limit_error,
+    nearest_aspect_ratio,
     normalize_image_size,
+    note_aspect_ratio,
     resolve_output_path,
     retry_delay,
     save_image_bytes,
@@ -58,11 +60,10 @@ VALID_ASPECT_RATIOS = [
 
 VALID_IMAGE_SIZES = ["512px", "1K", "2K", "4K"]
 
-DEFAULT_MODEL = "gemini-3.1-flash-image"
+DEFAULT_MODEL = "gemini-nano-banana-2.1"
 
 GEMINI_2_5_FLASH_IMAGE_MODELS = {
     "gemini-2.5-flash-image",
-    "gemini-2.5-flash-image-preview",
 }
 GEMINI_2_5_VALID_ASPECT_RATIOS = [
     "1:1", "2:3", "3:2", "3:4", "4:3",
@@ -71,8 +72,8 @@ GEMINI_2_5_VALID_ASPECT_RATIOS = [
 GEMINI_2_5_VALID_IMAGE_SIZES = ["1K"]
 
 MINIMAL_THINKING_MODELS = {
+    "gemini-nano-banana-2.1",
     "gemini-3.1-flash-image",
-    "gemini-3.1-flash-image-preview",
 }
 
 REFERENCE_IMAGE_MIME_TYPES = {
@@ -101,6 +102,10 @@ def _request_image_size(image_size: str) -> str:
 
 def _validate_model_options(model: str, aspect_ratio: str, image_size: str) -> None:
     """Enforce limits only for Gemini models with a known narrower contract."""
+    if _model_id(model) == "gemini-nano-banana-2.1" and image_size == "512px":
+        raise ValueError(
+            f"Invalid image size '{image_size}' for {model}. Valid: 1K, 2K, 4K."
+        )
     if _model_id(model) not in GEMINI_2_5_FLASH_IMAGE_MODELS:
         return
     if aspect_ratio not in GEMINI_2_5_VALID_ASPECT_RATIOS:
@@ -277,7 +282,7 @@ def generate(prompt: str,
         image_size: Image size ("512px", "1K", "2K", "4K", case-insensitive)
         output_dir: Output directory
         filename: Output filename (without extension)
-        model: Model name (default: gemini-3.1-flash-image)
+        model: Model name (default: gemini-nano-banana-2.1)
         max_retries: Maximum number of retries
         reference_image: Optional source image path. When set, the image and
             edit instruction are sent together as multimodal input.
@@ -298,8 +303,14 @@ def generate(prompt: str,
 
     image_size = normalize_image_size(image_size)
 
-    if aspect_ratio not in VALID_ASPECT_RATIOS:
-        raise ValueError(f"Invalid aspect ratio '{aspect_ratio}'. Valid: {VALID_ASPECT_RATIOS}")
+    requested_ratio = aspect_ratio
+    ratios = (
+        GEMINI_2_5_VALID_ASPECT_RATIOS
+        if _model_id(model) in GEMINI_2_5_FLASH_IMAGE_MODELS
+        else VALID_ASPECT_RATIOS
+    )
+    aspect_ratio = nearest_aspect_ratio(aspect_ratio, ratios)
+    note_aspect_ratio(requested_ratio, aspect_ratio)
 
     if image_size not in VALID_IMAGE_SIZES:
         raise ValueError(f"Invalid image size '{image_size}'. Valid: {VALID_IMAGE_SIZES}")
@@ -323,16 +334,16 @@ def generate(prompt: str,
             if is_permanent_error(e):
                 raise
             if attempt < max_retries and is_rate_limit_error(e):
-                delay = retry_delay(attempt, rate_limited=True)
+                delay = retry_delay(attempt, rate_limited=True, exc=last_error)
                 print(f"\n  [WARN] Rate limit hit (attempt {attempt + 1}/{max_retries + 1}). "
                       f"Waiting {delay}s before retry...")
                 time.sleep(delay)
             elif attempt < max_retries:
-                delay = retry_delay(attempt, rate_limited=False)
+                delay = retry_delay(attempt, rate_limited=False, exc=last_error)
                 print(f"\n  [WARN] Error (attempt {attempt + 1}/{max_retries + 1}): {e}. "
                       f"Retrying in {delay}s...")
                 time.sleep(delay)
             else:
                 break
 
-    raise RuntimeError(f"Failed after {max_retries + 1} attempts. Last error: {last_error}")
+    raise RuntimeError(f"Failed after {max_retries + 1} attempts. Last error: {last_error}") from last_error

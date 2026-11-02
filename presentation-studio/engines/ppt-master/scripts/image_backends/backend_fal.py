@@ -5,7 +5,7 @@ fal.ai image generation backend.
 Configuration keys:
   FAL_KEY / FAL_API_KEY   (required)
   FAL_BASE_URL            (optional)
-  FAL_MODEL               (optional; nano-banana-2 only)
+  FAL_MODEL               (optional; google/nano-banana-2.1 or fal-ai/nano-banana-2)
 """
 
 import sys
@@ -35,7 +35,9 @@ from image_backends.backend_common import (
     http_error,
     is_permanent_error,
     is_rate_limit_error,
+    nearest_aspect_ratio,
     normalize_image_size,
+    note_aspect_ratio,
     require_api_key,
     resolve_output_path,
     retry_delay,
@@ -47,8 +49,8 @@ VALID_ASPECT_RATIOS = [
     "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9",
 ]
 DEFAULT_ENDPOINT = "https://fal.run"
-DEFAULT_MODEL = "fal-ai/nano-banana-2"
-SUPPORTED_MODELS = {DEFAULT_MODEL}
+DEFAULT_MODEL = "google/nano-banana-2.1"
+SUPPORTED_MODELS = {DEFAULT_MODEL, "fal-ai/nano-banana-2"}
 
 IMAGE_SIZE_TO_RESOLUTION = {
     "512px": "0.5K",
@@ -75,6 +77,10 @@ def _resolve_request_options(
             f"Supported: {VALID_ASPECT_RATIOS}"
         )
     normalized_size = normalize_image_size(image_size)
+    if resolved_model == "google/nano-banana-2.1" and normalized_size in {"512px", "0.5K"}:
+        raise ValueError(
+            f"Unsupported image size '{image_size}' for {resolved_model}. Supported: 1K, 2K, 4K."
+        )
     resolution = IMAGE_SIZE_TO_RESOLUTION.get(normalized_size)
     if not resolution:
         raise ValueError(
@@ -141,6 +147,9 @@ def generate(prompt: str,
              output_dir: str = None, filename: str = None,
              model: str = None, max_retries: int = MAX_RETRIES) -> str:
     """Generate an image with retries using the fal.ai backend."""
+    requested_ratio = aspect_ratio
+    aspect_ratio = nearest_aspect_ratio(aspect_ratio, VALID_ASPECT_RATIOS)
+    note_aspect_ratio(requested_ratio, aspect_ratio)
     resolved_model = model or os.environ.get("FAL_MODEL") or DEFAULT_MODEL
     _resolve_request_options(aspect_ratio, image_size, resolved_model)
     api_key = require_api_key(
@@ -170,9 +179,9 @@ def generate(prompt: str,
             if attempt >= max_retries:
                 break
             limited = is_rate_limit_error(exc)
-            delay = retry_delay(attempt, rate_limited=limited)
+            delay = retry_delay(attempt, rate_limited=limited, exc=last_error)
             label = "Rate limit hit" if limited else f"Error: {exc}"
             print(f"\n  [WARN] {label}. Retrying in {delay}s...")
             time.sleep(delay)
 
-    raise RuntimeError(f"Failed after {max_retries + 1} attempts. Last error: {last_error}")
+    raise RuntimeError(f"Failed after {max_retries + 1} attempts. Last error: {last_error}") from last_error

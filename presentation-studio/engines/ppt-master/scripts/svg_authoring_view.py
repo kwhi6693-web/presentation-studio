@@ -52,6 +52,7 @@ from xml.etree import ElementTree as ET
 
 from compact_svg_coordinates import compact_svg_tree
 from console_encoding import configure_utf8_stdio
+from hyperlink_contract import ADOPTED_SOURCE_LINK_ATTR, SOURCE_HREF_ATTR
 from native_payloads import (
     CUSTOM_GEOMETRY_ATTRIBUTE,
     CUSTOM_GEOMETRY_REF_ATTRIBUTE,
@@ -64,18 +65,26 @@ from pptx_shapes import (
     NATIVE_FALLBACK_SHA256_ATTR,
     svg_native_fallback_fingerprint,
 )
+from pptx_gradients import (
+    NATIVE_GRADIENT_ATTR,
+    NATIVE_GRADIENT_PREVIEW_SHA256_ATTR,
+    NATIVE_GRADIENT_SHA256_ATTR,
+)
 from svg_compatibility import normalize_single_child_group_filters
 from svg_authoring_contract import (
     canonical_authoring_errors,
     normalize_compact_authoring_tree,
 )
-from svg_to_pptx.drawingml.context import IDENTITY_MATRIX
+from svg_to_pptx.drawingml.context import ConvertContext, IDENTITY_MATRIX
 from svg_to_pptx.drawingml.utils import (
     INHERITABLE_ATTRS,
+    is_stroked_zero_axis_shape,
     matrix_multiply,
     parse_inline_style,
     parse_opacity,
     parse_transform_matrix,
+    project_definition_index,
+    project_gradient_errors,
 )
 
 configure_utf8_stdio()
@@ -199,6 +208,31 @@ _ADOPT_INHERITED_ATTRIBUTES = tuple(INHERITABLE_ATTRS)
 
 def _local_name(name: object) -> str:
     return name.rsplit("}", 1)[-1] if isinstance(name, str) else ""
+
+
+def semantic_shape_text_component(
+    shape: ET.Element,
+    *,
+    included_text_ids: set[int] | None = None,
+) -> ET.Element | None:
+    """Validate text compiled into one semantic shape, excluding native restores."""
+    def included(element: ET.Element) -> bool:
+        return (
+            element.tag.replace(f'{{{SVG_NS}}}', '') == 'text'
+            and (included_text_ids is None or id(element) in included_text_ids)
+        )
+
+    texts = [child for child in shape if included(child)]
+    nested_texts = [child for child in shape.iter() if included(child)]
+    if nested_texts != texts:
+        raise ValueError('Semantic shape text must be one direct SVG text component')
+    if not texts:
+        return None
+    if len(texts) != 1:
+        raise ValueError('Semantic shape requires at most one paragraph-based text component')
+    if shape.get('data-pptx-frame') is None:
+        raise ValueError('Semantic shape text requires data-pptx-frame on its owner')
+    return texts[0]
 
 
 @dataclass
@@ -912,9 +946,43 @@ def _unwrap_preview(parent: ET.Element, wrapper: ET.Element) -> bool:
     return True
 
 
-def _strip_import_attributes(element: ET.Element, stats: ProjectionStats) -> None:
+def _strip_import_attributes(
+    element: ET.Element,
+    stats: ProjectionStats,
+    *,
+    geometry_owner: ET.Element | None = None,
+    ctx: ConvertContext | None = None,
+) -> None:
+    gradient_attributes = {
+        NATIVE_GRADIENT_ATTR,
+        NATIVE_GRADIENT_SHA256_ATTR,
+        NATIVE_GRADIENT_PREVIEW_SHA256_ATTR,
+    }
+    preserve_gradient = False
+    if _local_name(element.tag) in {"linearGradient", "radialGradient"}:
+        preview = copy.deepcopy(element)
+        for name in gradient_attributes:
+            preview.attrib.pop(name, None)
+        # Source gradients can need a preview outside the authored interface
+        # (for example userSpaceOnUse for a collapsed outline). Keep the native
+        # payload needed to export those previews without weakening that interface.
+        preserve_gradient = bool(project_gradient_errors(preview))
     for name in list(element.attrib):
         if name not in AUTHORING_OMITTED_SOURCE_ATTRIBUTES:
+            continue
+        if preserve_gradient and name in gradient_attributes:
+            continue
+        if (
+            geometry_owner is not None
+            and (
+                geometry_owner.get("data-pptx-object") == "connector"
+                or is_stroked_zero_axis_shape(geometry_owner, ctx)
+            )
+            and element.get("data-pptx-part") == "geometry"
+            and name in {"data-pptx-custgeom", "data-pptx-geometry-sha256"}
+        ):
+            # Collapsed stroked shapes and connectors need the source geometry
+            # because the compact projection no longer rehydrates source refs.
             continue
         stats.source_attributes[name] += 1
         del element.attrib[name]
@@ -952,7 +1020,11 @@ def _compact_text_runs(root: ET.Element, stats: ProjectionStats) -> None:
         stats.single_tspans_collapsed += 1
 
 
-def _project_subtree(parent: ET.Element, stats: ProjectionStats) -> None:
+def _project_subtree(
+    parent: ET.Element,
+    stats: ProjectionStats,
+    ctx: ConvertContext,
+) -> None:
     for child in list(parent):
         part = child.get("data-pptx-part")
         tag = _local_name(child.tag)
@@ -970,8 +1042,8 @@ def _project_subtree(parent: ET.Element, stats: ProjectionStats) -> None:
             _remove_child(parent, child)
             continue
 
-        _project_subtree(child, stats)
-        _strip_import_attributes(child, stats)
+        _project_subtree(child, stats, ctx)
+        _strip_import_attributes(child, stats, geometry_owner=parent, ctx=ctx)
 
         if part == "geometry-preview":
             child.attrib.pop("data-pptx-part", None)
@@ -1314,9 +1386,11 @@ def _externalize_large_source_objects(
     def visit(parent: ET.Element, inside_source_ref: bool) -> None:
         for child in list(parent):
             source_ref = child.get(SOURCE_REF_ATTRIBUTE)
-            if source_ref and not inside_source_ref:
+            forced_proxy = child.get(SOURCE_PROXY_ATTRIBUTE) == SOURCE_PROXY_KIND
+            if source_ref and (not inside_source_ref or forced_proxy):
                 candidates.append((parent, child))
-                continue
+                if forced_proxy:
+                    continue
             visit(child, inside_source_ref or bool(source_ref))
 
     visit(root, False)
@@ -1408,7 +1482,8 @@ def _render_projection(
     stats = ProjectionStats()
     _mark_semantic_objects(root, stats)
     _compact_semantic_shapes(root, stats)
-    _project_subtree(root, stats)
+    definitions, _duplicates = project_definition_index(root)
+    _project_subtree(root, stats, ConvertContext(defs=definitions))
     _compact_text_runs(root, stats)
     stats.compatibility_normalizations += len(
         normalize_single_child_group_filters(root)
@@ -2256,6 +2331,9 @@ def adopt_authoring_object(
     )
     adopted = copy.deepcopy(source_element)
     adopted.tail = None
+    from authoring_roundtrip import preserve_adopted_source_links
+
+    preserve_adopted_source_links(authoring_dir, source_name, source_root, source_element, adopted)
     imported_icons = [
         item
         for item in adopted.iter()
@@ -2329,7 +2407,20 @@ def adopt_authoring_object(
     if not adopted_id:
         raise ValueError("Adopted object lost its required id")
     _append_adopted_definitions(target_root, adopted_definitions)
-    target_root.append(adopted)
+    shape_href = adopted.get("data-pptx-shape-hyperlink")
+    if shape_href and not any(_local_name(item.tag) == "a" for item in adopted.iter()):
+        adopted.attrib.pop("data-pptx-shape-hyperlink")
+        wrapper = ET.Element(f"{{{SVG_NS}}}a", {"href": shape_href})
+        source_href = adopted.attrib.pop(SOURCE_HREF_ATTR, None)
+        if source_href is not None:
+            wrapper.set(SOURCE_HREF_ATTR, source_href)
+        adopted_link = adopted.attrib.pop(ADOPTED_SOURCE_LINK_ATTR, None)
+        if adopted_link is not None:
+            wrapper.set(ADOPTED_SOURCE_LINK_ATTR, adopted_link)
+        wrapper.append(adopted)
+        target_root.append(wrapper)
+    else:
+        target_root.append(adopted)
 
     original_target = target_path.read_bytes()
     try:

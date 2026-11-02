@@ -14,6 +14,7 @@ Backend selection (`IMAGE_BACKEND` in `.env` or the current process environment)
   IMAGE_BACKEND=qwen        -> Alibaba Qwen image backend
   IMAGE_BACKEND=zhipu       -> Zhipu GLM-Image backend
   IMAGE_BACKEND=volcengine  -> Volcengine Seedream backend
+  IMAGE_BACKEND=tencent     -> Tencent Cloud TokenHub backend
   IMAGE_BACKEND=modelscope  -> ModelScope backend
   IMAGE_BACKEND=siliconflow -> SiliconFlow backend
   IMAGE_BACKEND=fal         -> fal.ai backend
@@ -49,6 +50,7 @@ import concurrent.futures
 import json
 import os
 import re
+import stat
 import sys
 import tempfile
 import threading
@@ -76,6 +78,8 @@ IMAGE_ENV_PREFIXES = (
     "VOLCENGINE_",
     "LAS_",
     "ARK_",
+    "TENCENT_",
+    "TOKENHUB_",
     "MODELSCOPE_",
     "SILICONFLOW_",
     "FAL_",
@@ -88,15 +92,6 @@ DEPRECATED_IMAGE_KEYS = {
     "IMAGE_BASE_URL",
 }
 
-# All aspect ratios accepted by the unified CLI
-# (each backend validates its own subset internally)
-ALL_ASPECT_RATIOS = [
-    "1:1", "1:2", "1:3", "1:4", "1:8",
-    "2:1", "2:3", "3:1", "3:2", "3:4", "4:1", "4:3",
-    "4:5", "5:4", "8:1", "9:16", "9:21", "10:16",
-    "16:9", "16:10", "21:9",
-]
-
 ALL_IMAGE_SIZES = ["512px", "1K", "2K", "4K"]
 
 BACKEND_REGISTRY = {
@@ -104,7 +99,7 @@ BACKEND_REGISTRY = {
         "module": "backend_gemini",
         "tier": "core",
         "label": "Google Gemini",
-        "default_model": "gemini-3.1-flash-image",
+        "default_model": "gemini-nano-banana-2.1",
         "default_image_size": "1K",
         "key_hint": "GEMINI_API_KEY",
         "aliases": ["google"],
@@ -113,7 +108,7 @@ BACKEND_REGISTRY = {
         "module": "backend_openai",
         "tier": "core",
         "label": "OpenAI / OpenAI-compatible",
-        "default_model": "gpt-image-2",
+        "default_model": "gpt-image-2.5-sunburst",
         "default_image_size": "1K",
         "key_hint": "OPENAI_API_KEY",
         "aliases": ["openai-compatible", "openai_compatible"],
@@ -153,6 +148,15 @@ BACKEND_REGISTRY = {
         "default_image_size": "2K",
         "key_hint": "LAS_API_KEY / VOLCENGINE_API_KEY / ARK_API_KEY",
         "aliases": ["ark", "doubao", "seedream"],
+    },
+    "tencent": {
+        "module": "backend_tencent",
+        "tier": "extended",
+        "label": "Tencent Cloud TokenHub",
+        "default_model": "hy-image-v3",
+        "default_image_size": "1K",
+        "key_hint": "TENCENT_API_KEY / TOKENHUB_API_KEY",
+        "aliases": ["tokenhub", "hunyuan", "tencentmaas"],
     },
     "modelscope": {
         "module": "backend_modelscope",
@@ -203,7 +207,7 @@ BACKEND_REGISTRY = {
         "module": "backend_fal",
         "tier": "experimental",
         "label": "fal.ai",
-        "default_model": "fal-ai/nano-banana-2",
+        "default_model": "google/nano-banana-2.1",
         "default_image_size": "1K",
         "key_hint": "FAL_KEY / FAL_API_KEY",
         "aliases": ["fal-ai"],
@@ -220,7 +224,7 @@ BACKEND_REGISTRY = {
         "module": "backend_openrouter",
         "tier": "experimental",
         "label": "OpenRouter",
-        "default_model": "google/gemini-3.1-flash-image",
+        "default_model": "google/gemini-nano-banana-2.1",
         "default_image_size": "1K",
         "key_hint": "OPENROUTER_API_KEY",
     },
@@ -369,6 +373,17 @@ def _print_backend_list() -> None:
         print()
     print("Recommendation: prefer CORE backends for everyday PPT generation.")
     _print_backend_resolution()
+
+
+def _aspect_ratio_arg(value: str) -> str:
+    """argparse type: any positive W:H, kept as written for the backend to fit."""
+    from image_backends.backend_common import parse_aspect_ratio
+
+    try:
+        parse_aspect_ratio(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+    return value
 
 
 def _resolve_backend() -> tuple[object, str]:
@@ -521,6 +536,7 @@ STRUCTURAL_IMAGE_TYPES = {
 }
 LEGACY_IMAGE_TYPES = {"background", "hero", "portrait", "typography"}
 EARLY_LEGACY_IMAGE_TYPES = {"illustration", "photography"}
+SHEET_TYPE_SPELLINGS = {"illustration sheet", "sheet"}
 VALID_IMAGE_TYPES = (
     STRUCTURAL_IMAGE_TYPES
     | LEGACY_IMAGE_TYPES
@@ -566,7 +582,7 @@ def load_manifest(path: str) -> dict:
     Optional: `image_size`, `model`, `alt_text`, `purpose`, `type`,
     `page_role`, `text_policy`, `slice_grid`, `slice_names`, `last_error`.
     """
-    from image_backends.backend_common import normalize_image_size
+    from image_backends.backend_common import normalize_image_size, parse_aspect_ratio
 
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -643,11 +659,10 @@ def load_manifest(path: str) -> dict:
                 f"{prefix} status '{item['status']}' is invalid. "
                 f"Valid: {sorted(VALID_STATUSES)}"
             )
-        if item["aspect_ratio"] not in ALL_ASPECT_RATIOS:
-            raise ValueError(
-                f"{prefix} aspect_ratio '{item['aspect_ratio']}' is invalid. "
-                f"Valid: {ALL_ASPECT_RATIOS}"
-            )
+        try:
+            parse_aspect_ratio(item["aspect_ratio"])
+        except ValueError as exc:
+            raise ValueError(f"{prefix} {exc}") from exc
         if "image_size" in item:
             image_size = item["image_size"]
             if not isinstance(image_size, str) or not image_size.strip():
@@ -683,6 +698,11 @@ def load_manifest(path: str) -> dict:
             )
 
         image_type = item.get("type")
+        if isinstance(image_type, str) and image_type.strip().lower() in SHEET_TYPE_SPELLINGS:
+            # The resource-row column reads "Illustration Sheet"; the manifest
+            # item omits type. Accept the row spelling as that omission.
+            item.pop("type")
+            image_type = None
         if image_type is not None:
             normalized_type = (
                 image_type.strip().lower()
@@ -815,6 +835,12 @@ def load_manifest(path: str) -> dict:
 def save_manifest(path: str, data: dict) -> None:
     """Atomically write manifest back to disk (tmp file + rename)."""
     target = Path(path)
+    try:
+        mode = stat.S_IMODE(target.stat().st_mode)
+    except FileNotFoundError:
+        umask = os.umask(0)
+        os.umask(umask)
+        mode = 0o666 & ~umask
     fd, tmp_path = tempfile.mkstemp(
         prefix=target.stem + ".",
         suffix=".tmp",
@@ -824,6 +850,8 @@ def save_manifest(path: str, data: dict) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
             f.write("\n")
+        # mkstemp creates 0600; keep the manifest's own permissions.
+        os.chmod(tmp_path, mode)
         os.replace(tmp_path, target)
     except Exception:
         try:
@@ -893,9 +921,11 @@ def _run_manifest(manifest: dict, manifest_path: str, backend_module, *,
     output_dir = str(manifest_output_dir)
 
     from image_backends.backend_common import (
+        MAX_RETRY_WAIT,
         is_global_permanent_error,
         is_permanent_error,
         is_rate_limit_error,
+        retry_after_seconds,
         validate_image_file,
     )
 
@@ -955,7 +985,7 @@ def _run_manifest(manifest: dict, manifest_path: str, backend_module, *,
                 aspect_ratio=item["aspect_ratio"],
                 image_size=item.get("image_size", image_size),
                 output_dir=output_dir,
-                filename=Path(item["filename"]).stem,
+                filename=item["filename"],  # the backend strips the extension once
                 model=item.get("model", model),
             )
             saved_path = _materialize_manifest_image(
@@ -977,6 +1007,7 @@ def _run_manifest(manifest: dict, manifest_path: str, backend_module, *,
         )
 
         rate_limited = False
+        server_wait = 0
         with concurrent.futures.ThreadPoolExecutor(max_workers=batch_size) as ex:
             futures = [ex.submit(_one, i) for i in batch_idx]
             for fut in concurrent.futures.as_completed(futures):
@@ -1007,6 +1038,7 @@ def _run_manifest(manifest: dict, manifest_path: str, backend_module, *,
                         )
                     elif is_rate_limit_error(exc):
                         rate_limited = True
+                        server_wait = max(server_wait, retry_after_seconds(exc) or 0)
                         attempts = rate_limit_attempts.get(idx, 0) + 1
                         rate_limit_attempts[idx] = attempts
                         if (
@@ -1052,6 +1084,13 @@ def _run_manifest(manifest: dict, manifest_path: str, backend_module, *,
                 "Stopping new batches; untouched items remain retryable.\n"
             )
             break
+        if rate_limited and server_wait > MAX_RETRY_WAIT:
+            stopped_for_rate_limit = True
+            print(
+                f"\n  Provider asked to wait {server_wait}s (over {MAX_RETRY_WAIT}s). "
+                "Stopping now; rerun the manifest later, unfinished items remain retryable.\n"
+            )
+            break
         if stopped_for_rate_limit:
             print(
                 "\n  Persistent rate limit reached the run boundary. "
@@ -1060,12 +1099,14 @@ def _run_manifest(manifest: dict, manifest_path: str, backend_module, *,
             break
         if rate_limited and current > 1 and queue:
             new_current = max(1, current // 2)
+            # Wait at least as long as the provider asked (Retry-After), never under 10s.
+            pause = max(10, server_wait)
             print(
                 f"\n  ⚠ Rate-limit hit — concurrency {current} → {new_current}, "
-                "pausing 10s before next batch\n"
+                f"pausing {pause}s before next batch\n"
             )
             current = new_current
-            time.sleep(10)
+            time.sleep(pause)
         elif queue:
             time.sleep(2)
 
@@ -1212,8 +1253,11 @@ def main() -> None:
         )
     )
     parser.add_argument(
-        "--aspect_ratio", default="1:1", choices=ALL_ASPECT_RATIOS,
-        help=f"Aspect ratio. Default: 1:1."
+        "--aspect_ratio", default="1:1", type=_aspect_ratio_arg,
+        help=(
+            "Requested aspect ratio, any positive W:H (e.g. 16:9, 4:1, 1.85:1). "
+            "Each backend outputs the nearest size its model allows. Default: 1:1."
+        )
     )
     parser.add_argument(
         "--image_size", default=None,
@@ -1379,7 +1423,10 @@ def main() -> None:
             sys.exit(130)
         md_path = render_manifest_md_to_file(args.manifest, manifest)
         print(f"Rendered Markdown sidecar: {md_path}")
-        sys.exit(1 if failed else 0)
+        # A run stopped early (billing, rate limit) leaves retryable items without
+        # failing any; it must still exit non-zero.
+        unfinished = any(item["status"] in RETRYABLE_STATUSES for item in manifest["items"])
+        sys.exit(1 if failed or unfinished else 0)
 
     # Single-image mode. Backfill the historical default prompt only here, so
     # plain generation is byte-for-byte unchanged while edit mode still requires

@@ -8,13 +8,13 @@ Used by image_gen.py as a backend module.
 Configuration keys:
   OPENAI_API_KEY   (required) API key
   OPENAI_BASE_URL  (optional) Custom API endpoint (e.g. http://127.0.0.1:3000/v1)
-  OPENAI_MODEL     (optional) Model name (default: gpt-image-2)
+  OPENAI_MODEL     (optional) Model name (default: gpt-image-2.5-sunburst)
   OPENAI_SIZE_PRESET         (optional) auto, legacy, gpt-image, gpt-image-2, or dall-e-2
   OPENAI_RESPONSE_FORMAT     (optional) auto, b64_json, url, or omit
-  OPENAI_QUALITY             (optional) auto, omit, low, medium, high, standard, or hd
+  OPENAI_QUALITY             (optional) auto, omit, low, medium, high, xhigh, max, standard, or hd
   OPENAI_OUTPUT_FORMAT       (optional) png, jpeg, or webp for GPT image models
   OPENAI_OUTPUT_COMPRESSION  (optional) 0-100, only for jpeg/webp GPT image output
-  OPENAI_BACKGROUND          (optional) auto or opaque for gpt-image-2
+  OPENAI_BACKGROUND          (optional) auto, opaque, or transparent for GPT image models
   OPENAI_MODERATION          (optional) auto or low for GPT image models
   OPENAI_INPUT_FIDELITY      (optional) high or low for supported GPT image edits
 
@@ -54,10 +54,15 @@ import requests
 from image_backends.backend_common import (
     MAX_RETRIES,
     download_image,
+    fit_size,
     http_error,
     is_permanent_error,
     is_rate_limit_error,
+    match_aspect_ratio,
+    nearest_aspect_ratio,
     normalize_image_size,
+    note_aspect_ratio,
+    parse_aspect_ratio,
     resolve_output_path,
     retry_delay,
     save_image_bytes,
@@ -69,7 +74,8 @@ from image_backends.backend_common import (
 # ╚══════════════════════════════════════════════════════════════════╝
 
 # Aspect ratio -> DALL-E 3 / legacy compatible size mapping.
-# Unknown OpenAI-compatible models use this table to preserve old behavior.
+# Unknown OpenAI-compatible models use this table to preserve old behavior;
+# other ratios take the nearest entry.
 LEGACY_COMPAT_ASPECT_RATIO_TO_SIZE = {
     "1:1":  "1024x1024",
     "16:9": "1792x1024",
@@ -100,6 +106,8 @@ GPT_IMAGE_LEGACY_ASPECT_RATIO_TO_SIZE = {
 
 # GPT Image 2 supports flexible sizes when both edges are multiples of 16,
 # the edge ratio is <= 3:1, and the total pixels are within model limits.
+# Listed ratios use these sizes; any other ratio is fitted to the rules at
+# the tier's 1:1 pixel budget (beyond 3:1 it is clamped to 3:1).
 GPT_IMAGE_2_SIZES = {
     "512px": {
         "1:1": "1024x1024", "16:9": "1280x720", "9:16": "720x1280",
@@ -134,8 +142,6 @@ DALL_E_2_SIZE_BY_IMAGE_SIZE = {
     "4K": "1024x1024",
 }
 
-VALID_ASPECT_RATIOS = list(LEGACY_COMPAT_ASPECT_RATIO_TO_SIZE.keys())
-
 # image_size -> quality mapping
 IMAGE_SIZE_TO_QUALITY = {
     "512px": "low",
@@ -144,7 +150,7 @@ IMAGE_SIZE_TO_QUALITY = {
     "4K":    "high",
 }
 
-DEFAULT_MODEL = "gpt-image-2"
+DEFAULT_MODEL = "gpt-image-2.5-sunburst"
 
 GPT_IMAGE_2_MIN_PIXELS = 655_360
 GPT_IMAGE_2_MAX_PIXELS = 8_294_400
@@ -173,6 +179,8 @@ OPENAI_QUALITY_VALUES = {
     "low",
     "medium",
     "high",
+    "xhigh",
+    "max",
     "standard",
     "hd",
 }
@@ -206,7 +214,12 @@ def _is_gpt_image_model(model: str) -> bool:
 
 
 def _is_gpt_image_2(model: str) -> bool:
-    return _normalized_model(model).startswith("gpt-image-2")
+    normalized = _normalized_model(model)
+    return normalized.startswith("gpt-image-2") and not normalized.startswith("gpt-image-2.")
+
+
+def _is_gpt_image_2_5(model: str) -> bool:
+    return _normalized_model(model).startswith("gpt-image-2.5-")
 
 
 def _is_dall_e_2(model: str) -> bool:
@@ -243,6 +256,19 @@ def _validate_gpt_image_2_size(size: str) -> None:
         raise ValueError(f"Invalid gpt-image-2 size '{size}': {', '.join(errors)}")
 
 
+def _nearest_listed_size(aspect_ratio: str, table: dict[str, str]) -> str:
+    """Keep a listed ratio's size; otherwise pick the size whose real W:H is nearest.
+
+    Legacy keys are nominal (5:4 maps to 1536x1024), so unlisted ratios compare
+    against the sizes themselves, not the keys.
+    """
+    listed = match_aspect_ratio(aspect_ratio, table)
+    if listed:
+        return table[listed]
+    sizes = {size.replace("x", ":"): size for size in table.values()}
+    return sizes[nearest_aspect_ratio(aspect_ratio, sizes)]
+
+
 def _select_size(
     model: str,
     aspect_ratio: str,
@@ -251,17 +277,34 @@ def _select_size(
 ) -> str:
     """Select a model-compatible size while preserving legacy fallbacks."""
     preset = size_preset or "auto"
-    if preset in {"gpt-image-2"} or (preset == "auto" and _is_gpt_image_2(model)):
-        size = GPT_IMAGE_2_SIZES[image_size][aspect_ratio]
+    if preset in {"gpt-image-2"} or (
+        preset == "auto" and (_is_gpt_image_2(model) or _is_gpt_image_2_5(model))
+    ):
+        sizes = GPT_IMAGE_2_SIZES[image_size]
+        listed = match_aspect_ratio(aspect_ratio, sizes)
+        if listed:
+            size = sizes[listed]
+        else:
+            square_w, square_h = _parse_size(sizes["1:1"])
+            width, height = fit_size(
+                aspect_ratio,
+                pixels=square_w * square_h,
+                step=16,
+                max_edge=GPT_IMAGE_2_MAX_EDGE,
+                min_pixels=GPT_IMAGE_2_MIN_PIXELS,
+                max_pixels=GPT_IMAGE_2_MAX_PIXELS,
+                max_ratio=GPT_IMAGE_2_MAX_RATIO,
+            )
+            size = f"{width}x{height}"
         _validate_gpt_image_2_size(size)
         return size
     if preset in {"gpt-image", "gpt-image-legacy"} or (
         preset == "auto" and _is_gpt_image_model(model)
     ):
-        return GPT_IMAGE_LEGACY_ASPECT_RATIO_TO_SIZE[aspect_ratio]
+        return _nearest_listed_size(aspect_ratio, GPT_IMAGE_LEGACY_ASPECT_RATIO_TO_SIZE)
     if preset in {"dall-e-2", "dalle-2"} or (preset == "auto" and _is_dall_e_2(model)):
         return DALL_E_2_SIZE_BY_IMAGE_SIZE[image_size]
-    return LEGACY_COMPAT_ASPECT_RATIO_TO_SIZE[aspect_ratio]
+    return _nearest_listed_size(aspect_ratio, LEGACY_COMPAT_ASPECT_RATIO_TO_SIZE)
 
 
 def _supports_response_format(model: str) -> bool:
@@ -312,8 +355,10 @@ def _gpt_image_options(model: str) -> tuple[dict, str]:
 
     background = _read_env_choice("OPENAI_BACKGROUND", GPT_IMAGE_BACKGROUNDS)
     if background:
-        if _is_gpt_image_2(model) and background == "transparent":
-            raise ValueError("gpt-image-2 does not support OPENAI_BACKGROUND=transparent.")
+        if background == "transparent" and output_format == "jpeg":
+            raise ValueError(
+                "OPENAI_BACKGROUND=transparent requires OPENAI_OUTPUT_FORMAT=png or webp, not jpeg."
+            )
         options["background"] = background
 
     moderation = _read_env_choice("OPENAI_MODERATION", GPT_IMAGE_MODERATION_VALUES)
@@ -331,15 +376,16 @@ def _read_input_fidelity(model: str) -> str | None:
     )
     if input_fidelity is None:
         return None
-    if _is_gpt_image_2(model):
+    if _is_gpt_image_2(model) or _is_gpt_image_2_5(model):
         raise ValueError(
-            "gpt-image-2 always uses high input fidelity and does not accept "
-            "OPENAI_INPUT_FIDELITY. Remove this setting."
+            f"{model} does not accept OPENAI_INPUT_FIDELITY in this backend. Remove this setting."
         )
     if not _is_gpt_image_model(model):
         raise ValueError(
             f"{model} does not support OPENAI_INPUT_FIDELITY in this backend."
         )
+    if _normalized_model(model) == "gpt-image-1-mini" and input_fidelity != "low":
+        raise ValueError(f"{model} only supports OPENAI_INPUT_FIDELITY=low.")
     return input_fidelity
 
 
@@ -375,6 +421,12 @@ def _read_quality(image_size: str, model: str) -> str | None:
     quality = _read_env_choice("OPENAI_QUALITY", OPENAI_QUALITY_VALUES)
     if quality == "omit":
         return None
+    if quality in {"xhigh", "max"} and not _is_gpt_image_2_5(model):
+        raise ValueError(
+            f"{model} does not support OPENAI_QUALITY={quality}. "
+            "Only gpt-image-2.5-sunburst and gpt-image-2.5-flare (including snapshots) "
+            "support xhigh and max."
+        )
     if quality and quality != "auto":
         if _is_gpt_image_model(model) and quality in {"standard", "hd"}:
             raise ValueError(
@@ -509,6 +561,7 @@ def _generate_image(api_key: str, prompt: str,
     print(f"  Model:        {model}")
     print(f"  Prompt:       {prompt[:120]}{'...' if len(prompt) > 120 else ''}")
     print(f"  Size:         {size} (from aspect_ratio={aspect_ratio})")
+    note_aspect_ratio(aspect_ratio, size.replace("x", ":"))
     if size_preset and size_preset != "auto":
         print(f"  Size Preset:  {size_preset}")
     if quality is not None:
@@ -610,6 +663,7 @@ def _edit_image(api_key: str, prompt: str, reference_image: str,
     print(f"  Reference:    {reference_image}")
     print(f"  Prompt:       {prompt[:120]}{'...' if len(prompt) > 120 else ''}")
     print(f"  Size:         {size} (from aspect_ratio={aspect_ratio})")
+    note_aspect_ratio(aspect_ratio, size.replace("x", ":"))
     if size_preset and size_preset != "auto":
         print(f"  Size Preset:  {size_preset}")
     if quality is not None:
@@ -694,7 +748,7 @@ def generate(prompt: str,
         image_size: Image size, mapped to OpenAI quality
         output_dir: Output directory
         filename: Output filename (without extension)
-        model: Model name (default: gpt-image-2)
+        model: Model name (default: gpt-image-2.5-sunburst)
         max_retries: Maximum number of retries
         reference_image: Optional source image path. When set, the request
             goes to /v1/images/edits (image-to-image) instead of
@@ -708,12 +762,7 @@ def generate(prompt: str,
 
     image_size = normalize_image_size(image_size)
 
-    if aspect_ratio not in LEGACY_COMPAT_ASPECT_RATIO_TO_SIZE:
-        supported = list(LEGACY_COMPAT_ASPECT_RATIO_TO_SIZE.keys())
-        raise ValueError(
-            f"Unsupported aspect ratio '{aspect_ratio}' for OpenAI backend. "
-            f"Supported: {supported}"
-        )
+    parse_aspect_ratio(aspect_ratio)
 
     _validate_request_options(
         model,
@@ -744,16 +793,16 @@ def generate(prompt: str,
             if is_permanent_error(e):
                 raise
             if attempt < max_retries and is_rate_limit_error(e):
-                delay = retry_delay(attempt, rate_limited=True)
+                delay = retry_delay(attempt, rate_limited=True, exc=e)
                 print(f"\n  [WARN] Rate limit hit (attempt {attempt + 1}/{max_retries + 1}). "
                       f"Waiting {delay}s before retry...")
                 time.sleep(delay)
             elif attempt < max_retries:
-                delay = retry_delay(attempt, rate_limited=False)
+                delay = retry_delay(attempt, rate_limited=False, exc=e)
                 print(f"\n  [WARN] Error (attempt {attempt + 1}/{max_retries + 1}): {e}. "
                       f"Retrying in {delay}s...")
                 time.sleep(delay)
             else:
                 break
 
-    raise RuntimeError(f"Failed after {max_retries + 1} attempts. Last error: {last_error}")
+    raise RuntimeError(f"Failed after {max_retries + 1} attempts. Last error: {last_error}") from last_error

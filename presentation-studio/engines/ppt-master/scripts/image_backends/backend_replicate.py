@@ -35,7 +35,9 @@ from image_backends.backend_common import (
     http_error,
     is_permanent_error,
     is_rate_limit_error,
+    nearest_aspect_ratio,
     normalize_image_size,
+    note_aspect_ratio,
     poll_json,
     require_api_key,
     resolve_output_path,
@@ -43,7 +45,7 @@ from image_backends.backend_common import (
 )
 
 
-VALID_ASPECT_RATIOS = ["1:1", "16:9", "9:16", "3:4", "4:3", "3:2", "2:3", "4:5", "5:4", "21:9"]
+VALID_ASPECT_RATIOS = ["1:1", "16:9", "9:16", "3:4", "4:3", "3:2", "2:3", "4:5", "5:4"]
 DEFAULT_BASE_URL = "https://api.replicate.com/v1"
 DEFAULT_MODEL = "black-forest-labs/flux-1.1-pro"
 SUPPORTED_MODELS = {DEFAULT_MODEL}
@@ -168,6 +170,9 @@ def generate(prompt: str,
              output_dir: str = None, filename: str = None,
              model: str = None, max_retries: int = MAX_RETRIES) -> str:
     """Generate an image with retries using the Replicate backend."""
+    requested_ratio = aspect_ratio
+    aspect_ratio = nearest_aspect_ratio(aspect_ratio, VALID_ASPECT_RATIOS)
+    note_aspect_ratio(requested_ratio, aspect_ratio)
     resolved_model = model or os.environ.get("REPLICATE_MODEL") or DEFAULT_MODEL
     _resolve_request_options(aspect_ratio, image_size, resolved_model)
     api_key = require_api_key(
@@ -197,9 +202,9 @@ def generate(prompt: str,
             if attempt >= max_retries:
                 break
             limited = is_rate_limit_error(exc)
-            delay = retry_delay(attempt, rate_limited=limited)
+            delay = retry_delay(attempt, rate_limited=limited, exc=last_error)
             label = "Rate limit hit" if limited else f"Error: {exc}"
             print(f"\n  [WARN] {label}. Retrying in {delay}s...")
             time.sleep(delay)
 
-    raise RuntimeError(f"Failed after {max_retries + 1} attempts. Last error: {last_error}")
+    raise RuntimeError(f"Failed after {max_retries + 1} attempts. Last error: {last_error}") from last_error

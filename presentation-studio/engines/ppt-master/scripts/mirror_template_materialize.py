@@ -56,6 +56,7 @@ from native_payloads import (
     serialize_native_payload_store,
 )
 from pptx_shapes import (
+    CONNECTOR_PRESET_TYPES,
     NATIVE_FALLBACK_SHA256_ATTR,
     svg_native_fallback_fingerprint,
     svg_preset_preview_fingerprint,
@@ -68,6 +69,13 @@ from svg_authoring_view import (
     semantic_subtree_sha256,
 )
 from svg_finalize.flatten_tspan import flatten_text_with_tspans
+from svg_to_pptx.drawingml.context import ConvertContext
+from svg_to_pptx.drawingml.utils import (
+    is_stroked_zero_axis_shape,
+    parse_transform_matrix,
+    svg_hidden_reason,
+    transform_point,
+)
 from svg_to_pptx.pptx_package.template_structure import (
     SOURCE_THEMES_FILENAME,
     SOURCE_THEMES_SCHEMA,
@@ -191,6 +199,7 @@ class AuthoringDocument:
     source_path: Path
     source_sha256: str
     source_refs: dict[str, SourceRefRecord]
+    initial_authoring_sha256: str = ""
 
 
 @dataclass(frozen=True)
@@ -263,6 +272,8 @@ def _compact_json_bytes(payload: dict[str, object]) -> bytes:
 def _template_execution_manifest_files(
     materialized_roots: list[tuple[Path, ET.Element]],
     source_import: dict[str, object] | None,
+    source_package_sha256: str | None = None,
+    source_geometry_unchanged: bool = False,
 ) -> list[MaterializedFile]:
     """Serialize one compact roster plus per-prototype text-slot sidecars."""
     templates: list[dict[str, object]] = []
@@ -297,6 +308,7 @@ def _template_execution_manifest_files(
         ))
         templates.append({
             "prototype": prototype,
+            "source_svg_sha256": _sha256_bytes(_serialize_svg(root)),
             "page_type": relative_path.stem.split("_", 1)[-1],
             "viewBox": root.get("viewBox"),
             "master": root.get("data-pptx-master"),
@@ -330,6 +342,8 @@ def _template_execution_manifest_files(
             "by_code": {},
         },
         "source_themes": SOURCE_THEMES_FILENAME,
+        "source_package_sha256": source_package_sha256,
+        "source_geometry_unchanged": source_geometry_unchanged,
         "templates": templates,
     }
     files.append(MaterializedFile(
@@ -619,7 +633,9 @@ def _load_authoring_documents(
         )
     if manifest.get("projection_kind") != "layered":
         raise MirrorMaterializationError(
-            "Mirror materialization requires projection_kind='layered'"
+            "mirror publishes only pptx_template_import.py workspaces; "
+            "an SVG workspace is consumed as an exact root by apply_template.py "
+            "(projection_kind must be layered)"
         )
     if manifest.get("authoring_root") != ".":
         raise MirrorMaterializationError("authoring_manifest.json authoring_root must be '.'")
@@ -727,6 +743,7 @@ def _load_authoring_documents(
 
         documents[authoring_name] = AuthoringDocument(
             name=authoring_name,
+            initial_authoring_sha256=str(raw.get("initial_authoring_sha256") or ""),
             authoring_path=authoring_path,
             source_path=source_path,
             source_sha256=expected_source_sha,
@@ -913,6 +930,12 @@ def _validate_source_ref_closure(
 
 def _load_native_graph(workspace: Path) -> dict[str, Any]:
     native_path = native_structure_path(workspace)
+    if not native_path.is_file() or not (workspace / "sources" / "source.pptx").is_file():
+        raise MirrorMaterializationError(
+            "mirror publishes only pptx_template_import.py workspaces; "
+            "an SVG workspace is consumed as an exact root by apply_template.py "
+            "(requires analysis/native_structure.json and sources/source.pptx)"
+        )
     native = _load_json(native_path, context="native structure")
     if native.get("schema") != NATIVE_STRUCTURE_SCHEMA:
         raise MirrorMaterializationError(
@@ -1440,7 +1463,7 @@ def _paint_value(element: ET.Element, name: str) -> str | None:
     return _parse_style(element.get("style")).get(name)
 
 
-def _visible_leaf(element: ET.Element) -> bool:
+def _visible_leaf(element: ET.Element, *, check_dimensions: bool = True) -> bool:
     if _hidden(element):
         return False
     tag = _local_name(element.tag)
@@ -1448,8 +1471,8 @@ def _visible_leaf(element: ET.Element) -> bool:
         return False
     if tag in {"g", "svg", "a"}:
         return any(_visible_leaf(child) for child in element)
-    if tag in {"rect", "image", "foreignObject"}:
-        for dimension in ("width", "height"):
+    if tag in {"rect", "image", "foreignObject"} and (check_dimensions or tag != "rect"):
+        for dimension in ("width", "height") if check_dimensions else ():
             raw = element.get(dimension)
             if raw is not None:
                 try:
@@ -1461,7 +1484,7 @@ def _visible_leaf(element: ET.Element) -> bool:
     if tag in {"line", "polyline"}:
         stroke = _paint_value(element, "stroke")
         return stroke not in {None, "none", "transparent"}
-    if tag in {"path", "polygon", "circle", "ellipse"}:
+    if tag in {"rect", "path", "polygon", "circle", "ellipse"}:
         fill = _paint_value(element, "fill")
         stroke = _paint_value(element, "stroke")
         return not (
@@ -1547,7 +1570,10 @@ def _flatten_fixed_group(group: ET.Element, *, context: str) -> list[ET.Element]
             atoms.append(item)
     if len(atoms) == 1:
         atom = atoms[0]
-        for name in ("data-pptx-frame", "data-pptx-object", "data-pptx-prst"):
+        for name in (
+            "data-pptx-frame", "data-pptx-object", "data-pptx-prst",
+            "data-pptx-geometry-kind",
+        ):
             if group.get(name) is not None and atom.get(name) is None:
                 atom.set(name, group.get(name, ""))
     return atoms
@@ -1573,6 +1599,7 @@ def _fixed_atoms(
     scope: str,
     key: str,
     placeholder_source_refs: set[str] | None = None,
+    warnings: list[str] | None = None,
 ) -> list[ET.Element]:
     atoms: list[ET.Element] = []
     serial = 0
@@ -1584,6 +1611,13 @@ def _fixed_atoms(
             or child.get("data-ph-type") is not None
             or child.get(SOURCE_REF_ATTRIBUTE) in placeholder_source_refs
         ):
+            continue
+        if _invisible_degenerate_source(child):
+            if warnings is not None:
+                warnings.append(
+                    f"{scope.title()} {key} element {child.get('id') or '<' + tag + '>'!r}: "
+                    "omitted invisible content without a positive source frame"
+                )
             continue
         if not _visible_leaf(child):
             continue
@@ -1625,6 +1659,128 @@ def _frame(element: ET.Element | None) -> tuple[float, float, float, float] | No
     if not all(math.isfinite(item) for item in values) or values[2] <= 0 or values[3] <= 0:
         return None
     return values
+
+
+def _invisible_degenerate_source(element: ET.Element) -> bool:
+    """Omit only unbounded source content whose paint is known to be invisible."""
+    if _frame(element) is not None:
+        return False
+    preview = copy.deepcopy(element)
+    # Resolve local style precedence before propagating inherited paint on this
+    # disposable view. Source attributes and geometry remain unchanged.
+    for node in preview.iter():
+        node.attrib.update(_parse_style(node.get("style")))
+        node.attrib.pop("style", None)
+    if _hidden(preview) and _paint_value(preview, "visibility") not in {"hidden", "collapse"}:
+        return True
+    for parent in preview.iter():
+        for child in parent:
+            _merge_group_inheritance(parent, child)
+    parents = {id(child): parent for parent in preview.iter() for child in parent}
+    for leaf in preview.iter():
+        if _local_name(leaf.tag) in _NON_VISUAL_TAGS | {"g", "svg", "a"}:
+            continue
+        if svg_hidden_reason(leaf, parents):
+            continue
+        ancestor = parents.get(id(leaf))
+        while ancestor is not None and _local_name(ancestor.tag) not in _NON_VISUAL_TAGS:
+            ancestor = parents.get(id(ancestor))
+        if ancestor is not None:
+            continue
+        # Dimensions do not prove a source image or stroked shape is empty.
+        # Keep uncertain content for the existing geometry validation.
+        if _visible_leaf(leaf, check_dimensions=False):
+            return False
+    return True
+
+
+def _source_bounds(
+    element: ET.Element,
+    stroke_width: float = 1.0,
+) -> tuple[float, float, float, float] | None:
+    """Bound a known source frame or native group's children without editing it."""
+    raw = (element.get("data-pptx-frame") or "").replace(",", " ").split()
+    if len(raw) != 4:
+        return None
+    try:
+        x, y, width, height = (float(value) for value in raw)
+    except ValueError:
+        return None
+    if (
+        not all(math.isfinite(value) for value in (x, y, width, height))
+        or width < 0 or height < 0
+        or (width == 0 and height == 0)
+    ):
+        return None
+
+    # Only the validation zone is padded; native frames and geometry stay exact.
+    for child in element.iter():
+        raw_stroke = _paint_value(child, "stroke-width")
+        if raw_stroke is not None:
+            try:
+                value = float(raw_stroke)
+            except ValueError:
+                continue
+            if math.isfinite(value):
+                stroke_width = max(stroke_width, value)
+    if width == 0:
+        x -= stroke_width / 2
+        width = stroke_width
+    if height == 0:
+        y -= stroke_width / 2
+        height = stroke_width
+    if element.get("data-pptx-object") == "group":
+        child_bounds = [
+            _source_bounds(child, stroke_width)
+            for child in element if _visible_leaf(child)
+        ]
+        if not child_bounds or any(bounds is None for bounds in child_bounds):
+            return None
+        x = min(bounds[0] for bounds in child_bounds)
+        y = min(bounds[1] for bounds in child_bounds)
+        width = max(bounds[0] + bounds[2] for bounds in child_bounds) - x
+        height = max(bounds[1] + bounds[3] for bounds in child_bounds) - y
+    matrix = parse_transform_matrix(element.get("transform", ""))
+    corners = [
+        transform_point(matrix, px, py)
+        for px in (x, x + width)
+        for py in (y, y + height)
+    ]
+    left = min(point[0] for point in corners)
+    top = min(point[1] for point in corners)
+    return (
+        left, top,
+        max(point[0] for point in corners) - left,
+        max(point[1] for point in corners) - top,
+    )
+
+
+def _root_group_bounds(
+    element: ET.Element,
+    canvas_width: float,
+    canvas_height: float,
+    ctx: ConvertContext | None = None,
+) -> tuple[float, float, float, float] | None:
+    bounds = _frame(element)
+    if bounds is not None:
+        return bounds
+    if (
+        element.get("data-pptx-object") not in {"connector", "group"}
+        and element.get("data-pptx-prst") not in CONNECTOR_PRESET_TYPES
+        and not is_stroked_zero_axis_shape(element, ctx)
+    ):
+        return None
+    bounds = _source_bounds(element)
+    if bounds is None:
+        return None
+    # The page clips edge strokes; bounds describe their on-canvas module zone.
+    x, y, width, height = bounds
+    left, top = max(0.0, x), max(0.0, y)
+    right = min(canvas_width, x + width)
+    bottom = min(canvas_height, y + height)
+    if right <= left or bottom <= top:
+        return None
+    return left, top, right - left, bottom - top
 
 
 def _element_by_ref(root: ET.Element, source_ref: str) -> ET.Element | None:
@@ -1784,7 +1940,10 @@ def _slot_plans(
             raw.get("shapeId"),
             context=f"layout {layout.get('key')} placeholder shapeId",
         )
-        bounds = _frame(_element_by_ref(layout_root, f"layout:{shape_id}"))
+        bounds = (
+            _frame(_element_by_ref(layout_root, f"layout:{shape_id}"))
+            or _native_geometry(raw)
+        )
         if bounds is None:
             for slide in source_slides:
                 matching = next(
@@ -1819,7 +1978,6 @@ def _slot_plans(
                 bounds = _frame(
                     _placeholder_guide_by_semantic(master_root, _semantic_role(raw))
                 )
-        bounds = bounds or _native_geometry(raw)
         if bounds is None:
             raise MirrorMaterializationError(
                 f"Layout {layout.get('key')!r} placeholder {shape_id!r} has no "
@@ -1889,7 +2047,7 @@ def _copy_text_carrier(source: ET.Element | None) -> ET.Element | None:
     if source_frame is not None:
         carrier.set(
             "data-pptx-frame",
-            " ".join(format_coordinate(value) for value in source_frame),
+            _format_source_frame(source_frame),
         )
     carrier.set("data-pptx-carrier", "true")
     return carrier
@@ -2144,6 +2302,9 @@ def _blank_text_carrier(
     carrier = _copy_text_carrier(layout_guide)
     if carrier is None:
         carrier = _copy_text_carrier(master_guide)
+        if carrier is not None:
+            # The Master supplies typography here; the resolved slot owns its frame.
+            carrier.attrib.pop("data-pptx-frame", None)
     if carrier is None:
         x, y, _width, height = plan.bounds
         carrier = ET.Element(
@@ -2159,24 +2320,24 @@ def _blank_text_carrier(
     carrier.text = None
     for child in list(carrier):
         carrier.remove(child)
-    if carrier.get("data-pptx-frame") is None:
+    if _frame(carrier) is None:
         carrier.set(
             "data-pptx-frame",
-            " ".join(format_coordinate(value) for value in plan.bounds),
+            _format_source_frame(plan.bounds),
         )
     carrier.set("data-pptx-carrier", "true")
     return carrier
 
 
 def _blank_image_carrier(plan: SlotPlan) -> ET.Element:
-    x, y, width, height = plan.bounds
+    x, y, width, height = _format_source_frame(plan.bounds).split()
     return ET.Element(
         f"{{{SVG_NS}}}image",
         {
-            "x": format_coordinate(x),
-            "y": format_coordinate(y),
-            "width": format_coordinate(width),
-            "height": format_coordinate(height),
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
             "href": TRANSPARENT_PIXEL_DATA_URI,
             "preserveAspectRatio": "none",
             "data-pptx-carrier": "true",
@@ -2186,6 +2347,15 @@ def _blank_image_carrier(plan: SlotPlan) -> ET.Element:
 
 def _format_number(value: float) -> str:
     return f"{value:.8f}".rstrip("0").rstrip(".") or "0"
+
+
+def _format_source_frame(values: tuple[float, float, float, float]) -> str:
+    """Keep a positive source extent when page-coordinate rounding would erase it."""
+    compacted = [format_coordinate(value) for value in values]
+    for axis in (2, 3):
+        if values[axis] > 0 and compacted[axis] == "0":
+            compacted[axis] = _format_number(values[axis])
+    return " ".join(compacted)
 
 
 def _optional_float(value: str | None) -> float | None:
@@ -2210,9 +2380,7 @@ def _slot_wrapper(
         {
             "id": plan.slot_id,
             "data-pptx-placeholder": plan.semantic_role,
-            "data-pptx-bounds": " ".join(
-                format_coordinate(item) for item in plan.bounds
-            ),
+            "data-pptx-bounds": _format_source_frame(plan.bounds),
         },
     )
     if plan.idx is not None:
@@ -2384,6 +2552,7 @@ def _compose_template(
     slide: dict[str, Any] | None,
     slide_root: ET.Element | None,
     slot_plans: list[SlotPlan],
+    warnings: list[str] | None = None,
 ) -> ET.Element:
     width = float(native["slideSize"]["width_px"])
     height = float(native["slideSize"]["height_px"])
@@ -2417,11 +2586,9 @@ def _compose_template(
         },
     )
 
-    typography_roots = [
-        candidate
-        for candidate in (master_root, layout_root, slide_root)
-        if candidate is not None
-    ]
+    # Each layer/slide atom receives its own source inheritance below. A Slide
+    # root's compacted font must not become inheritance for Master atoms.
+    typography_roots = [master_root]
     for name in _ROOT_TYPOGRAPHY_ATTRIBUTES:
         for candidate in typography_roots:
             value = candidate.get(name)
@@ -2437,8 +2604,14 @@ def _compose_template(
         root.append(defs)
     for style in styles:
         root.append(style)
+    geometry_context = ConvertContext(defs={
+        element.get("id"): element for element in root.iter() if element.get("id")
+    })
 
-    master_atoms = _fixed_atoms(master_root, scope="master", key=str(master["key"]))
+    omission_warnings: list[str] = []
+    master_atoms = _fixed_atoms(
+        master_root, scope="master", key=str(master["key"]), warnings=omission_warnings,
+    )
     layout_placeholder_refs = {
         f"layout:{item['shapeId']}"
         for item in layout.get("placeholders", [])
@@ -2449,6 +2622,7 @@ def _compose_template(
         scope="layout",
         key=str(layout["key"]),
         placeholder_source_refs=layout_placeholder_refs,
+        warnings=omission_warnings,
     )
     master_backgrounds = [
         atom for atom in master_atoms if _is_full_canvas_rect(atom, width, height)
@@ -2475,6 +2649,13 @@ def _compose_template(
                 continue
             item = copy.deepcopy(child)
             _merge_group_inheritance(slide_root, item)
+            if _invisible_degenerate_source(item):
+                element_id = item.get("id") or f"slide-{slide['index']}-node-{index + 1}"
+                omission_warnings.append(
+                    f"element {element_id!r}: "
+                    "omitted invisible content without a positive source frame"
+                )
+                continue
             if _is_full_canvas_rect(item, width, height):
                 item.set("id", item.get("id") or f"slide-{slide['index']}-background")
                 item.set("data-pptx-layer", "slide")
@@ -2482,8 +2663,19 @@ def _compose_template(
                 slide_backgrounds.append(item)
             else:
                 item.set("id", item.get("id") or f"slide-{slide['index']}-node-{index + 1}")
-                if _local_name(item.tag) == "g" and _visible_leaf(item):
-                    bounds = _frame(item)
+                # A source line can have a zero-width/height frame. Publish its
+                # single geometry atom; a content group requires positive bounds.
+                if _local_name(item.tag) == "g" and item.get("data-pptx-prst") == "line":
+                    atoms = _flatten_fixed_group(item, context=f"Slide {slide['index']} line")
+                    if len(atoms) == 1:
+                        atoms[0].set("id", item.get("id"))
+                        item = atoms[0]
+                if _local_name(item.tag) == "g" and (
+                    _frame(item) is not None
+                    or _visible_leaf(item)
+                    or is_stroked_zero_axis_shape(item, geometry_context)
+                ):
+                    bounds = _root_group_bounds(item, width, height, geometry_context)
                     if bounds is None:
                         raise MirrorMaterializationError(
                             f"Slide {slide['index']} root group "
@@ -2491,7 +2683,7 @@ def _compose_template(
                         )
                     item.set(
                         "data-pptx-bounds",
-                        " ".join(format_coordinate(value) for value in bounds),
+                        _format_source_frame(bounds),
                     )
                 slide_content.append(item)
         if len(slide_backgrounds) > 1:
@@ -2558,6 +2750,9 @@ def _compose_template(
         _strip_source_refs(element)
         root.append(element)
     _strip_source_refs(root)
+    if warnings is not None:
+        context = f"Slide {slide['index']}" if slide else f"Layout {layout['key']}"
+        warnings.extend(f"{context}: {warning}" for warning in omission_warnings)
     return root
 
 
@@ -2899,11 +3094,66 @@ def _publish_files(
         raise MirrorMaterializationError(f"Mirror publish failed: {exc}") from exc
 
 
+def _source_geometry_is_unchanged(documents: dict[str, AuthoringDocument]) -> bool:
+    """Require every reachable compact document to match its importer hash."""
+    return bool(documents) and all(
+        document.initial_authoring_sha256 == _sha256_file(document.authoring_path)
+        for document in documents.values()
+    )
+
+
+def _spec_skeleton(native: dict, pages: list[tuple[Path, ET.Element]], kind: str) -> str:
+    """Describe source facts only; design judgment remains explicitly unfinished."""
+    from project_utils import CANVAS_FORMATS
+
+    width = native["slideSize"]["width_px"]
+    height = native["slideSize"]["height_px"]
+    viewbox = f"0 0 {format_coordinate(width)} {format_coordinate(height)}"
+    canvas = next((key for key, value in CANVAS_FORMATS.items()
+                   if value["width"] == width and value["height"] == height), "custom")
+    lines = [
+        "---", f"kind: {kind}", f"{kind}_id: TODO", "replication_mode: mirror",
+        "native_structure_mode: structured", f"canvas_format: {canvas}",
+        f"canvas_width: {format_coordinate(width)}", f"canvas_height: {format_coordinate(height)}",
+        f'canvas_viewbox: "{viewbox}"', f'source_viewbox: "{viewbox}"',
+        f"page_count: {len(pages)}", "---", "", "# Mirror Template Design Spec", "",
+        "## I. Template Overview", "", "<!-- TODO -->", "",
+        "## II. Color Scheme", "", "<!-- TODO -->", "",
+        "## III. Typography", "", "<!-- TODO -->", "",
+        "## IV. Signature Design Elements", "", "<!-- TODO -->", "",
+        "## V. Page Roster", "",
+        "| File | Master | Layout key | PowerPoint picker name | Slots |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for path, root in pages:
+        slots = ", ".join(
+            f"{e.get('id')}: {e.get('data-pptx-placeholder')}"
+            for e in root.iter() if e.get("data-pptx-placeholder")
+        ) or "none"
+        cells = [f"`{path.name}`", root.get("data-pptx-master", ""),
+                 root.get("data-pptx-layout", ""), root.get("data-pptx-layout-name", ""), slots]
+        lines.append("| " + " | ".join(c.replace("|", "\\|").replace("\n", " ") for c in cells) + " |")
+    lines += ["", "Slots `none` means the source package declared no PowerPoint placeholder; "
+              "editable text targets are listed in `template_execution/<prototype>.text-slots.json`.",
+              "", "### Source Preservation Map", "",
+              f"Source package SHA-256: `{native['source']['sha256']}`", "",
+              "| Source slide | Template | Master | Layout |", "| --- | --- | --- | --- |"]
+    for slide, (path, root) in zip(sorted(native["slides"], key=lambda item: int(item["index"])), pages):
+        lines.append(f"| {slide['index']} | `{path.name}` | {root.get('data-pptx-master')} | {root.get('data-pptx-layout')} |")
+    lines += ["", "Only source-slide-reachable Masters and Layouts are retained.", "",
+              "## VI. Assets", "", "<!-- TODO -->", ""]
+    return "\n".join(lines)
+
+
 def materialize_mirror_template(
     import_workspace: Path,
     template_workspace: Path,
+    *,
+    kind: str = "deck",
 ) -> dict[str, Any]:
     """Publish source Slide prototypes with their reachable mirror structure."""
+    if kind not in {"layout", "deck"}:
+        raise MirrorMaterializationError("Mirror publication kind must be layout or deck")
     native = _load_native_graph(import_workspace)
     inheritance = _load_inheritance(import_workspace)
     masters: dict[str, dict[str, Any]] = {}
@@ -3044,6 +3294,7 @@ def materialize_mirror_template(
         )
 
     materialized_roots: list[tuple[Path, ET.Element]] = []
+    warnings: list[str] = []
     for slide in slides:
         index = int(slide["index"])
         layout = layouts[str(slide["layoutKey"])]
@@ -3058,6 +3309,7 @@ def materialize_mirror_template(
             slide=slide,
             slide_root=prepared_slides[index],
             slot_plans=plans_by_layout[str(layout["key"])],
+            warnings=warnings,
         )
         materialized_roots.append((filename, root))
 
@@ -3081,6 +3333,21 @@ def materialize_mirror_template(
         )
         compact_svg_tree(root, compact_native_frames=False)
         compact_svg_style_tree(root)
+        # Compaction may hoist a Slide-specific font to the shared SVG root.
+        # Localize it again so Master/Layout resources have stable inheritance.
+        parents = {child: parent for parent in root.iter() for child in parent}
+        for text in root.iter(f"{{{SVG_NS}}}text"):
+            for name in _ROOT_TYPOGRAPHY_ATTRIBUTES:
+                ancestor = text
+                while ancestor is not None:
+                    value = _paint_value(ancestor, name)
+                    if value is not None:
+                        if ancestor is root:
+                            text.set(name, value)
+                        break
+                    ancestor = parents.get(ancestor)
+        for name in _ROOT_TYPOGRAPHY_ATTRIBUTES:
+            root.attrib.pop(name, None)
         _refresh_preset_preview_hashes(root)
         _refresh_fresh_native_fallback_hashes(root)
         try:
@@ -3151,8 +3418,21 @@ def materialize_mirror_template(
         _template_execution_manifest_files(
             materialized_roots,
             _source_import_summary(import_workspace),
+            native["source"]["sha256"],
+            _source_geometry_is_unchanged(documents),
         )
     )
+    library_root = Path(__file__).resolve().parent.parent / "templates"
+    resolved_workspace = template_workspace.resolve()
+    library_scope = any(
+        (library_root / directory).resolve() in resolved_workspace.parents
+        for directory in ("brands", "styles", "layouts", "decks")
+    )
+    spec_name = "design_spec.md" if library_scope else f"design_spec.{kind}.TODO.md"
+    files.append(MaterializedFile(
+        Path("templates") / spec_name,
+        _spec_skeleton(native, materialized_roots, kind).encode("utf-8"),
+    ))
     source_themes_path = Path("templates") / SOURCE_THEMES_FILENAME
     files.append(MaterializedFile(source_themes_path, source_theme_bundle))
 
@@ -3172,6 +3452,18 @@ def materialize_mirror_template(
         files.append(
             MaterializedFile(PAYLOAD_STORE_RELATIVE_PATH, payload_store)
         )
+    # Geometry provenance covers the SVG's native records and reusable assets
+    # as well. Finishing the Design Spec must not invalidate source geometry.
+    preservation_files = {
+        Path(os.path.relpath(item.relative_path, "templates")).as_posix(): _sha256_bytes(item.payload)
+        for item in files
+        if item.relative_path != execution_manifest_path and item.relative_path.suffix != ".md"
+    }
+    for item in files:
+        if item.relative_path == execution_manifest_path:
+            manifest = json.loads(item.payload)
+            manifest["source_files_sha256"] = preservation_files
+            item.payload = _json_bytes(manifest)
     relative_files = [item.relative_path for item in files]
     if len(relative_files) != len(set(relative_files)):
         raise MirrorMaterializationError("Materializer produced duplicate output paths")
@@ -3227,6 +3519,7 @@ def materialize_mirror_template(
 
     return {
         "schema": "ppt-master.mirror-materialization-report.v2",
+        "warnings": warnings,
         "import_workspace": str(import_workspace),
         "template_workspace": str(template_workspace),
         "source_slide_indexes": [int(item["index"]) for item in slides],
@@ -3245,6 +3538,7 @@ def materialize_mirror_template(
         },
         "template_svg_count": len(materialized_roots),
         "template_execution_manifest": execution_manifest_path.as_posix(),
+        "spec_skeleton": f"templates/{spec_name}",
         "source_themes": source_themes_path.as_posix(),
         "template_text_slot_manifest_count": len(materialized_roots),
         "imported_vector_count": len(referenced_icons),
@@ -3273,8 +3567,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Materialize a deterministic mirror template from one PPTX import "
-            "workspace's layered authoring IR."
+            "workspace's layered authoring IR, including a factual Design Spec "
+            "skeleton. SVG workspaces use apply_template.py with their exact root."
         )
+    )
+    parser.add_argument(
+        "--kind", choices=("deck", "layout"), default="deck",
+        help="Kind of the factual Design Spec skeleton (default: deck); finish its TODOs before registration",
     )
     parser.add_argument(
         "import_workspace",
@@ -3301,7 +3600,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error: import workspace does not exist: {import_workspace}", file=sys.stderr)
         return 1
     try:
-        report = materialize_mirror_template(import_workspace, template_workspace)
+        report = materialize_mirror_template(import_workspace, template_workspace, kind=args.kind)
     except (MirrorMaterializationError, OSError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1

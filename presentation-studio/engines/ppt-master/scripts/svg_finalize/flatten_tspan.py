@@ -45,12 +45,16 @@ TEXT_STYLE_ATTRS = {
     "stroke-width",
     "stroke-opacity",
     "opacity",
+    "display",
+    "visibility",
     "paint-order",
     # transforms/filters
     "transform",
     "clip-path",
     "filter",
 }
+
+TEXT_IDENTITY_ATTRS = {"id", "class", "data-name", "data-pptx-shape-name", "data-pptx-role"}
 
 
 num_re = re.compile(r"^[\s,]*([+-]?(?:\d+\.?\d*|\d*\.\d+))")
@@ -169,12 +173,17 @@ def copy_text_attrs(
     # Copy style string first
     if "style" in src_el.attrib and "style" not in exclude:
         dst_el.set("style", src_el.attrib["style"])
-    for k in TEXT_STYLE_ATTRS:
+    for k in TEXT_STYLE_ATTRS | TEXT_IDENTITY_ATTRS:
         if k in exclude:
             continue
         v = src_el.get(k)
         if v is not None:
             dst_el.set(k, v)
+    # A split row must retain the imported baseline/inset convention, even
+    # though the version marker is not an inherited SVG presentation property.
+    baseline_attr = "data-pptx-text-baseline"
+    if baseline_attr not in exclude and src_el.get(baseline_attr) is not None:
+        dst_el.set(baseline_attr, src_el.get(baseline_attr))
     # xml:space preservation
     xml_space = src_el.get("{http://www.w3.org/XML/1998/namespace}space")
     if xml_space is not None and "{http://www.w3.org/XML/1998/namespace}space" not in exclude:
@@ -264,11 +273,12 @@ def _build_paragraph_child_view(
 
     raw_lead = text_el.text or ""
     synthetic_first: ET.Element | None = None
-    if raw_lead.strip():
+    # A first visual line may also open with an inline run (a bold lead word)
+    # and no direct text; it is the same leading line with an empty prefix.
+    leads_with_inline_run = bool(direct_tspans) and not _is_new_line_tspan(direct_tspans[0])
+    if raw_lead.strip() or leads_with_inline_run:
         base_x_raw = get_attr(text_el, "x")
         if base_x_raw is None:
-            return None
-        if any((child.tail or "").strip() for child in direct_tspans):
             return None
         synthetic_first = ET.Element(f"{{{SVG_NS}}}tspan")
         synthetic_first.set("x", base_x_raw)
@@ -337,8 +347,11 @@ def _classify_paragraph_block(
         boundary as a hard DrawingML break. First entry is ``paragraph``.
 
     Conditions (all must hold):
-      - No direct text under <text>, except simple leading text that can be
-        promoted into a synthetic first-line <tspan>.
+      - No direct text under <text>, except leading text that can be
+        promoted into a synthetic first-line <tspan>; inline runs (and their
+        tail text) that follow it before the first line break stay on that
+        line.
+      - A line made of a single positioned <tspan> carries no tail text.
       - Every direct child is a <tspan>.
       - Every logical line starts with a new-line tspan.
       - Direct-child inline formatting tspans without x/y/dy are allowed only
@@ -373,6 +386,14 @@ def _classify_paragraph_block(
 
     if len(line_groups) < 2:
         return None
+
+    # Tail text after a direct-child tspan is a run of the parent <text>. It
+    # survives when the line is wrapped into a container with its sibling
+    # runs; a line made of one positioned tspan has no container, so its
+    # tail would dangle outside every line and the block is not mergeable.
+    for group in line_groups:
+        if len(group) == 1 and (group[0].tail or "").strip():
+            return None
 
     # First pass: validate per-line structural rules and collect dy values.
     dy_values: list[float] = []  # one per line (0 for first)
@@ -569,6 +590,7 @@ def flatten_text_with_tspans(
         )
         raise ValueError(f"Unsupported nested positional <tspan>: {preview}{suffix}")
     parent_map = {c: p for p in root.iter() for c in p}
+    used_ids = {el.get("id") for el in root.iter() if el.get("id")}
     changed = False
 
     # Collect candidates first to avoid modifying while iterating
@@ -629,7 +651,7 @@ def flatten_text_with_tspans(
         current_line_lead_text = text_el.text or None
         
         for idx, child in enumerate(list(text_el)):
-            if not _is_svg_tag(child, "tspan"):
+            if not (_is_svg_tag(child, "tspan") or _is_svg_tag(child, "a")):
                 continue
 
             content = collect_text_content(child)
@@ -654,7 +676,7 @@ def flatten_text_with_tspans(
             # Keep raw XML whitespace and tails until the shared downstream
             # text normalizer sees the whole line. A whitespace-only run can
             # still be the visible boundary between two formatted runs.
-            if content or child.tail:
+            if content or child.tail or child.get("dx") is not None:
                 current_line_tspans.append(child)
         
         # Process the last line
@@ -667,6 +689,16 @@ def flatten_text_with_tspans(
             new_texts.append(ne)
 
         if new_texts:
+            # Split rows remain distinct objects, but the first row retains
+            # the authored locator and later rows get collision-free ids.
+            original_id = text_el.get("id")
+            if original_id:
+                for line_number, ne in enumerate(new_texts[1:], start=2):
+                    candidate = f"{original_id}-line-{line_number}"
+                    while candidate in used_ids:
+                        candidate += "-line"
+                    ne.set("id", candidate)
+                    used_ids.add(candidate)
             # Replace original <text> with the list of new <text> nodes
             try:
                 idx = list(parent).index(text_el)
@@ -777,10 +809,13 @@ def _create_text_element_from_line(
     if (
         not lead_text
         and len(tspans) == 1
+        and _is_svg_tag(tspans[0], "tspan")
+        and not any(key in tspans[0].attrib for key in TEXT_IDENTITY_ATTRS)
         and not _has_tspan_children(tspans[0])
         and not tspans[0].tail
         and tspans[0].get(INLINE_FORMULA_ATTR) is None
         and not _declares_baseline_shift(tspans[0])
+        and (tspans[0].get("dx") is None or _is_new_line_tspan(tspans[0]))
     ):
         tspan = tspans[0]
         content = collect_text_content(tspan)
