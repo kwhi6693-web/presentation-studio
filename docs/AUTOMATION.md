@@ -111,6 +111,19 @@ mismatch, or protected-path change. Protected paths include workflows, repositor
 governance/rules, security-sensitive automation, token or identity configuration,
 and the automation policy itself.
 
+Two states are not treated as blockers, because GitHub resolves them on its own:
+
+- `mergeable_state: unstable` caused only by commit statuses outside GitHub Actions
+  (for example a Vercel preview that is pending or failed), when every Actions check
+  run on the head is green. A failed Actions check run still blocks.
+- Mergeability that GitHub is still computing, or Actions check runs that are still
+  running. The policy re-polls for up to about three minutes; if the state has not
+  settled, it exits without labeling and the next validation re-evaluates.
+
+When the sync workflow pushes a new upstream version to an existing pull request, it
+removes `manual-review` if that label was applied by the trusted App, so the new head
+is evaluated afresh. A label applied by a person is never removed automatically.
+
 When `main` has advanced and the pull request is behind, the App requests an update
 branch operation with the expected head SHA, verifies that the head changed, then
 exits. A fresh **Validate package** run must pass before the pull request is evaluated

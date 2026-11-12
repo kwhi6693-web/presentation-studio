@@ -14,8 +14,9 @@ presentation-studio/** -text
 *.woff2 binary
 *.ttf binary
 *.otf binary
-# Preserve these upstream fixtures verbatim; their releases include blank EOF lines.
-# Other whitespace errors (including trailing spaces) remain checked.
-presentation-studio/engines/ppt-master/scripts/tests/test_preview_browser.py whitespace=-blank-at-eof
-presentation-studio/engines/ppt-master/scripts/tests/test_pdf_content_preservation.py whitespace=-blank-at-eof
-presentation-studio/engines/ppt-master/scripts/tests/test_openai_narration.py whitespace=-blank-at-eof
+# Vendored upstream engines are imported verbatim, and upstream releases keep shipping
+# files with blank lines at EOF (three separate sync outages so far). Allow only that
+# one whitespace class inside the imported engine trees. Other whitespace errors
+# (including trailing spaces) remain checked there, and every whitespace error
+# remains checked for Presentation Studio's own files.
+presentation-studio/engines/** whitespace=-blank-at-eof

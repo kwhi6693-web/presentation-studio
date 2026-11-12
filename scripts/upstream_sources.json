@@ -119,21 +119,6 @@
           "mode": "replace"
         },
         {
-          "source": "package.json",
-          "destination": "engines/baoyu/package.json",
-          "mode": "replace"
-        },
-        {
-          "source": "package-lock.json",
-          "destination": "engines/baoyu/package-lock.json",
-          "mode": "replace"
-        },
-        {
-          "source": "pnpm-lock.yaml",
-          "destination": "engines/baoyu/pnpm-lock.yaml",
-          "mode": "replace"
-        },
-        {
           "source": "scripts/run-node-tests.mjs",
           "destination": "engines/baoyu/scripts/run-node-tests.mjs",
           "mode": "replace"
@@ -174,7 +159,12 @@
           "mode": "replace"
         }
       ],
-      "preserve": ["engines/baoyu/SKILL.md"]
+      "preserve": [
+        "engines/baoyu/SKILL.md",
+        "engines/baoyu/package.json",
+        "engines/baoyu/package-lock.json",
+        "engines/baoyu/pnpm-lock.yaml"
+      ]
     }
   ]
 }
