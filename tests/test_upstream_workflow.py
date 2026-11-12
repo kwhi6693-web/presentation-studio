@@ -11,7 +11,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "sync-upstreams.yml"
 VALIDATE_WORKFLOW = ROOT / ".github" / "workflows" / "validate.yml"
 AUTO_MERGE_WORKFLOW = ROOT / ".github" / "workflows" / "auto-merge-upstream.yml"
 AUTO_RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "auto-release.yml"
-APP_TOKEN_PIN = "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0"
+APP_TOKEN_PIN = "actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0"
 
 
 class UpstreamWorkflowContractTests(unittest.TestCase):
@@ -199,7 +199,7 @@ class UpstreamWorkflowContractTests(unittest.TestCase):
             'python-version: "3.12"',
             'python-version: "3.13"',
             "python -m venv --without-pip",
-            "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0",
+            "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0",
             "needs: checks",
             "name: verify",
             "build_package.py",
