@@ -32,9 +32,11 @@ The App requires only these repository permissions:
 - Metadata: read
 - Contents: read and write
 - Pull requests: read and write
+- Workflows: read and write — requested only by the Dependabot workflow, and only
+  when it merges a verified GitHub Actions pin update (GitHub refuses any App merge
+  that touches `.github/workflows/` without it)
 
-Do not grant Administration, Actions, Workflows, Secrets, Members, or other
-permissions. The workflow's ordinary `GITHUB_TOKEN` remains read-only and is used
+Do not grant Administration, Actions, Secrets, Members, or other permissions. The workflow's ordinary `GITHUB_TOKEN` remains read-only and is used
 for GitHub API inspection. The short-lived App installation token is used only for
 the authorized writes.
 
@@ -146,6 +148,29 @@ Immediately before merge, the workflow repeats live policy evaluation and local
 source-scope, provenance, and repository-health checks. It then performs an
 expected-SHA squash merge through the GitHub API, verifies the merged state and merge
 commit, and deletes only the merged automation branch. It never auto-approves.
+
+## Dependabot updates
+
+`.github/workflows/auto-merge-dependabot.yml` runs hourly (and on demand). It is
+scheduled rather than triggered by Dependabot, because Dependabot-triggered runs
+receive no repository secrets. For each open same-repository Dependabot PR it runs
+`scripts/dependabot_policy.py` from `main`; no PR code is executed.
+
+- **GitHub Actions bumps:** every changed workflow line must be a
+  `uses: actions/<name>@<sha> # <release>` pin of an action already approved in
+  `.github/reviewed-actions.json`, and the SHA must equal the commit the upstream
+  release tag points to. The App then commits the verified pin to
+  `.github/reviewed-actions.json` on the PR branch, validation re-runs, and a later
+  run merges.
+- **npm updates for the baoyu engine:** only `package.json`, `package-lock.json`
+  and `pnpm-lock.yaml` under `presentation-studio/engines/baoyu/`, and `package.json`
+  may change nothing but the versions of existing dependency or override keys.
+- Every commit must come from Dependabot or the App, the `verify` check must pass,
+  and the branch must be current with `main` (the App updates it when behind).
+
+Anything else stops with a `manual-review` label and one explanatory comment. A
+stopped PR is reported once, not on every run. Dependabot merges do not cut a
+release; the next upstream release includes them.
 
 ## Main validation and release policy
 

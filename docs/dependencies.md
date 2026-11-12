@@ -50,5 +50,9 @@ used by repository verification. A missing optional capability must remain visib
   through 3.13, and Node.js 20.9.0.
 - CI provisions a clean Python virtual environment with `python -m venv --without-pip`
   in the runner temporary directory; the repository gate requires no package install.
-- Official GitHub Actions are pinned to reviewed full commit SHAs. Dependabot updates
-  only those GitHub Actions; it does not manage vendored engine lockfiles.
+- Official GitHub Actions are pinned to full commit SHAs recorded in
+  `.github/reviewed-actions.json`. Dependabot proposes monthly grouped action updates;
+  the Dependabot automation verifies each new SHA against its release tag, records it,
+  and merges once validation passes (see `docs/AUTOMATION.md`). Dependabot security
+  updates for the baoyu engine lockfiles are merged the same way when they only change
+  dependency versions.

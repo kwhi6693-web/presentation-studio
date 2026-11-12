@@ -45,6 +45,8 @@ PROTECTED_PATHS = frozenset(
         ".github/PULL_REQUEST_TEMPLATE.md",
         "SECURITY.md",
         "scripts/automation_policy.py",
+        "scripts/dependabot_policy.py",
+        ".github/reviewed-actions.json",
         "scripts/upstream_sync.py",
         "scripts/build_package.py",
         "scripts/build_release_checksum.py",
