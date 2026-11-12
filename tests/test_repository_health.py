@@ -120,8 +120,8 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
                 "3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
                 "0000000000000000000000000000000000000000 # v7.0.1",
             ).replace(
-                "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0",
-                "5fda3b95a4ea91299a34e894583c3862153e4b97",
+                "6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0",
+                "6d4fd22b20465ccc0f7354476588e8df7c9ca0e0",
             )
             workflow.write_text(text, encoding="utf-8")
 
@@ -135,7 +135,7 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             )
             self.assertIn(
                 "official action pin does not match reviewed release: "
-                "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+                "actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0",
                 issues,
             )
 
@@ -303,7 +303,7 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             "  - uses: actions/checkout@"
             "3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n"
             "  - uses: actions/setup-python@"
-            "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0\n"
+            "6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0\n"
             "  - uses: actions/setup-node@"
             "949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n",
             encoding="utf-8",
@@ -313,7 +313,7 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             "  - uses: actions/checkout@"
             "3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n"
             "  - uses: actions/setup-python@"
-            "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0\n"
+            "6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0\n"
             "  - uses: actions/setup-node@"
             "949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n"
             "  - uses: actions/upload-artifact@"
@@ -329,7 +329,7 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             "  - uses: actions/checkout@"
             "3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n"
             "  - uses: actions/setup-python@"
-            "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0\n"
+            "6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0\n"
             "  - uses: actions/create-github-app-token@"
             "64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0\n",
             encoding="utf-8",
@@ -339,7 +339,7 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             "  - uses: actions/checkout@"
             "3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n"
             "  - uses: actions/setup-python@"
-            "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0\n"
+            "6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0\n"
             "  - uses: actions/setup-node@"
             "949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n"
             "  - uses: actions/create-github-app-token@"
@@ -351,7 +351,7 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             "  - uses: actions/checkout@"
             "3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n"
             "  - uses: actions/setup-python@"
-            "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0\n"
+            "6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0\n"
             "  - uses: actions/upload-artifact@"
             "cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n",
             encoding="utf-8",
