@@ -111,6 +111,18 @@ mismatch, or protected-path change. Protected paths include workflows, repositor
 governance/rules, security-sensitive automation, token or identity configuration,
 and the automation policy itself.
 
+One narrow exception: an upstream engine's `.env.example`, `.env.sample` or
+`.env.template` inside that source's managed paths may change when the policy fetches
+the file at the PR head and finds only blank lines and `#` comments, so it cannot hold
+a real value. Any assignment line, a rename, a removal, a fetch failure, a real `.env`
+or `.env.local`, or a path outside the source's managed paths stays protected.
+
+Every commit on a trusted sync PR must be authored by the App. Its committer may be the
+App or `web-flow`, because GitHub commits the server-side merge from the update-branch
+API that the automation itself calls when a PR falls behind `main`. A person clicking
+"Update branch" creates a commit authored by that person, which still blocks: leave
+sync PRs alone and let the automation update them.
+
 Two states are not treated as blockers, because GitHub resolves them on its own:
 
 - `mergeable_state: unstable` caused only by commit statuses outside GitHub Actions
