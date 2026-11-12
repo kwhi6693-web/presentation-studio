@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -42,7 +43,8 @@ from _conversion_profile import (  # noqa: E402
     profile_path_for,
     write_conversion_profile,
 )
-from _batch import expand_directory_inputs, unique_output_path  # noqa: E402
+from _batch import expand_directory_inputs, reject_source_overwrite, unique_output_path  # noqa: E402
+from _text_encoding import decode_text_source  # noqa: E402
 from _dispatcher import (  # noqa: E402
     build_conversion_command,
     default_markdown_path,
@@ -67,6 +69,15 @@ def _is_supported_directory_item(path: Path) -> bool:
     }
 
 
+def _output_is_directory(output_arg: str | None) -> bool:
+    """True when -o names an existing directory or ends with a path separator."""
+    if not output_arg:
+        return False
+    if output_arg.endswith(("/", os.sep)):
+        return True
+    return Path(output_arg).is_dir()
+
+
 def _dispatch_output_arg(
     input_arg: str,
     conversion_type: str,
@@ -74,20 +85,36 @@ def _dispatch_output_arg(
     batch_mode: bool,
     used_outputs: set[Path],
 ) -> str | None:
+    if output_arg and _output_is_directory(output_arg):
+        # A directory is a directory even for one input: the file keeps its
+        # default `<stem>.md` name inside it instead of becoming an
+        # extension-less file named after the directory.
+        batch_mode = True
     if output_arg and batch_mode and conversion_type == "web":
         return None
-    if output_arg and batch_mode:
-        return str(
-            unique_output_path(
-                Path(output_arg),
-                default_markdown_path(input_arg).stem,
-                used_outputs,
-            )
-        )
-    if output_arg:
-        return output_arg
     if batch_mode and conversion_type != "web":
-        return str(default_markdown_path(input_arg))
+        default_output = default_markdown_path(input_arg)
+        if output_arg:
+            default_output = Path(output_arg) / default_output.name
+        output = unique_output_path(default_output.parent, default_output.stem, used_outputs)
+        if output != default_output:
+            _print_status(
+                f"[INFO] Renamed output for {input_arg}: {default_output} -> {output} "
+                "(input/output collision)"
+            )
+        return str(output)
+    if output_arg:
+        # One input with an extension-less -o names the Markdown file, not a
+        # directory: `-o sources_cf` writes `sources_cf.md` (a directory is
+        # spelled with a trailing separator or already exists).
+        if not Path(output_arg).suffix:
+            _print_status(
+                f"[INFO] -o names the Markdown file for a single input: writing "
+                f"{output_arg}.md (spell a directory with a trailing separator, "
+                "or create it first)"
+            )
+            return f"{output_arg}.md"
+        return output_arg
     return None
 
 
@@ -124,23 +151,42 @@ def write_passthrough(
     """Copy text-like input to Markdown and write the profile sidecar."""
     source = Path(input_arg)
     try:
-        text = source.read_text(encoding="utf-8", errors="replace")
+        raw = source.read_bytes()
     except OSError as exc:
         print(f"[ERROR] Cannot read {source}: {exc}", file=sys.stderr)
         return 1
 
+    try:
+        text, encoding = decode_text_source(raw, source)
+    except ValueError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        return 1
+    if encoding != "utf-8" and output.resolve() == source.resolve():
+        print(
+            f"[ERROR] {source} uses {encoding}; choose a different -o path for UTF-8 output.",
+            file=sys.stderr,
+        )
+        return 1
+
     output.parent.mkdir(parents=True, exist_ok=True)
     if output.resolve() != source.resolve():
-        output.write_text(text, encoding="utf-8")
+        output.write_bytes(text.encode("utf-8"))
+    warnings = []
+    if encoding != "utf-8":
+        warnings.append(f"Detected source encoding: {encoding}; converted to UTF-8.")
     profile = write_conversion_profile(
         input_path=input_arg,
         markdown_path=output,
         converter="source_to_md.py",
         conversion_type=conversion_type,
+        warnings=warnings,
     )
+    for warning in warnings:
+        _print_status(f"[INFO] {warning}")
     _print_status(f"[OK] Saved Markdown to: {output}")
     _print_status(f"   Wrote conversion profile -> {profile}")
-    print_output(output)
+    if not json_output:
+        print_output(output)
     if json_output:
         payload = build_result_payload(
             input_path=input_arg,
@@ -224,6 +270,7 @@ def dispatch_single(
     args: argparse.Namespace,
     unknown_args: list[str],
     web_output_dir: str | None = None,
+    used_outputs: set[Path] | None = None,
 ) -> int:
     """Dispatch one source to the matching existing converter."""
     if conversion_type == "auto":
@@ -240,7 +287,13 @@ def dispatch_single(
         output = Path(output_arg) if output_arg else None
         emit_result: Path | None = None
         extra_args = list(unknown_args)
+        if _skips_images(args) and "--no-images" not in extra_args:
+            # web_to_md keeps remote image links instead of downloading the
+            # page's images into `<stem>_files/`.
+            extra_args.append("--no-images")
         if output is None:
+            for reserved in sorted(used_outputs or ()):
+                extra_args.extend(["--reserved-output", str(reserved)])
             emit_file = tempfile.NamedTemporaryFile(
                 prefix="ppt-master-web-result-",
                 suffix=".json",
@@ -273,8 +326,11 @@ def dispatch_single(
             output_path = _read_emit_result(emit_result)
             emit_result.unlink(missing_ok=True)
         if output_path and output_path.is_file():
+            if used_outputs is not None:
+                used_outputs.add(output_path.resolve())
             profile = ensure_profile(input_arg, output_path, route.script_name, "web")
-            print_output(output_path)
+            if not args.json:
+                print_output(output_path)
             if args.json:
                 print_json_result(input_arg, output_path, route.script_name, "web", profile)
             return 0
@@ -317,7 +373,8 @@ def dispatch_single(
         return 1
 
     profile = ensure_profile(input_arg, output, route.script_name, conversion_type)
-    print_output(output)
+    if not args.json:
+        print_output(output)
     if args.json:
         print_json_result(input_arg, output, route.script_name, conversion_type, profile)
     return 0
@@ -351,7 +408,7 @@ converter, so existing converter behavior remains the source of truth.
     parser.add_argument(
         "-o",
         "--output",
-        help="Output Markdown file for one input, or output directory for multiple inputs/directories",
+        help="Output Markdown file for one input, or output directory (an existing directory or a path ending in /) for one or more inputs",
     )
     parser.add_argument(
         "--images",
@@ -361,7 +418,10 @@ converter, so existing converter behavior remains the source of truth.
     parser.add_argument(
         "--no-images",
         action="store_true",
-        help="Alias for --images none on PDF inputs",
+        help=(
+            "Skip images: PDF image mode none; web pages keep remote image "
+            "links instead of downloading; no-op for Markdown/text"
+        ),
     )
     parser.add_argument(
         "--filter-images",
@@ -391,11 +451,29 @@ def _conversion_type_for_input(input_arg: str, requested_type: str) -> str:
     return requested_type
 
 
+def _skips_images(args: argparse.Namespace) -> bool:
+    return bool(args.no_images or args.images == "none")
+
+
 def _validate_pdf_image_flags(args: argparse.Namespace, conversion_types: list[str]) -> bool:
     if not _has_pdf_image_flags(args):
         return True
-    if any(conversion_type != "pdf" for conversion_type in conversion_types):
-        print("[ERROR] Image extraction flags are currently supported only for PDFs", file=sys.stderr)
+    skip_only = _skips_images(args) and not (
+        args.filter_images or args.render_vector_figures
+    )
+    for conversion_type in conversion_types:
+        if conversion_type == "pdf":
+            continue
+        # Web pages keep remote links; Markdown/text passthrough has no
+        # images to skip, so the flag is accepted as a no-op there.
+        if conversion_type in {"web", "markdown", "text"} and skip_only:
+            continue
+        print(
+            "[ERROR] Image extraction flags are supported only for PDFs; "
+            "--no-images (or --images none) also applies to web pages and "
+            "Markdown/text passthrough",
+            file=sys.stderr,
+        )
         return False
     return True
 
@@ -411,23 +489,58 @@ def dispatch_many(
     success_count = 0
     failed: list[str] = []
     skipped: list[str] = list(initial_failures or [])
-    batch_mode = batch_mode or len(inputs) > 1
+    batch_mode = batch_mode or len(inputs) > 1 or _output_is_directory(args.output)
     if args.output and batch_mode:
         output_dir = Path(args.output)
         if output_dir.exists() and not output_dir.is_dir():
             print(f"[ERROR] Batch output path is not a directory: {args.output}", file=sys.stderr)
             return 1
-        output_dir.mkdir(parents=True, exist_ok=True)
 
-    used_outputs: set[Path] = set()
-    for input_arg, conversion_type in zip(inputs, conversion_types):
-        output_arg = _dispatch_output_arg(
-            input_arg,
-            conversion_type,
-            args.output,
-            batch_mode,
-            used_outputs,
+    input_paths = {Path(item).resolve() for item in inputs if not is_url(item)}
+    used_outputs = set(input_paths)
+    try:
+        output_args = [
+            _dispatch_output_arg(
+                input_arg,
+                conversion_type,
+                args.output,
+                batch_mode,
+                used_outputs,
+            )
+            for input_arg, conversion_type in zip(inputs, conversion_types)
+        ]
+    except (OSError, ValueError) as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        return 1
+    if args.output and not batch_mode and output_args:
+        output = Path(output_args[0])
+        own_passthrough = (
+            output.resolve() in input_paths and conversion_types[0] in {"markdown", "text"}
         )
+        if output.exists() and not own_passthrough:
+            print(
+                f"[ERROR] Refusing to overwrite existing file: {output}. Choose a different -o path.",
+                file=sys.stderr,
+            )
+            return 1
+
+    try:
+        for input_arg, conversion_type, output_arg in zip(inputs, conversion_types, output_args):
+            if conversion_type == "web" and output_arg is None:
+                continue
+            output = resolve_output(output_arg, input_arg)
+            if conversion_type in {"markdown", "text"} and output.resolve() == Path(input_arg).resolve():
+                # In-place passthrough does not write; its encoding guard remains authoritative.
+                continue
+            reject_source_overwrite(output, list(input_paths))
+    except (OSError, ValueError) as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        return 1
+
+    if args.output and batch_mode:
+        Path(args.output).mkdir(parents=True, exist_ok=True)
+
+    for input_arg, conversion_type, output_arg in zip(inputs, conversion_types, output_args):
         web_output_dir = (
             args.output
             if args.output and batch_mode and conversion_type == "web"
@@ -443,6 +556,7 @@ def dispatch_many(
             args,
             unknown_args,
             web_output_dir=web_output_dir,
+            used_outputs=used_outputs,
         )
         if rc == 0:
             success_count += 1

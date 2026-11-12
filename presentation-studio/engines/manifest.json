@@ -5,9 +5,9 @@
     "entry": "SKILL.md",
     "license_file": "LICENSE",
     "license": "MIT",
-    "commit": "c40bca58e168fcef2facdc7612cc352d1233679b",
+    "commit": "ce92fb43e4ade9c701f4c869e286f13fce743c72",
     "role": "native editable PPTX renderer and editor",
-    "release_tag": "v6.1.0"
+    "release_tag": "v6.9.0"
   },
   "guizang": {
     "source_name": "guizang-ppt-skill",

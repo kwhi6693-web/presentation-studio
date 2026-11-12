@@ -182,6 +182,19 @@ def write_conversion_profile(
     return profile_path
 
 
+def record_source_url(markdown_path: str | Path, url: str) -> None:
+    """Add the fetched URL to a profile written for a downloaded document."""
+    profile_path = profile_path_for(Path(markdown_path))
+    profile = _read_json(profile_path)
+    if not isinstance(profile, dict) or not isinstance(profile.get("source"), dict):
+        return
+    profile["source"]["url"] = url
+    profile_path.write_text(
+        json.dumps(profile, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def write_conversion_profile_best_effort(
     *,
     input_path: str,
@@ -220,7 +233,7 @@ def build_result_payload(
     assets = Path(asset_dir) if asset_dir else default_asset_dir(markdown)
     image_manifest = assets / IMAGE_MANIFEST_NAME
     profile = Path(profile_path) if profile_path else profile_path_for(markdown)
-    return {
+    result = {
         "input": (
             input_path
             if input_path.startswith(("http://", "https://"))
@@ -233,3 +246,7 @@ def build_result_payload(
         "converter": converter,
         "conversion_type": conversion_type,
     }
+    profile_data = _read_json(profile)
+    if isinstance(profile_data, dict) and profile_data.get("warnings"):
+        result["warnings"] = profile_data["warnings"]
+    return result

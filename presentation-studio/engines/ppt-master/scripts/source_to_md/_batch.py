@@ -66,14 +66,27 @@ def _output_key(path: Path) -> Path:
     return path.resolve(strict=False)
 
 
+def reject_source_overwrite(output: Path, sources: list[Path]) -> None:
+    """Reject a write through a path or filesystem alias of any input."""
+    for source in sources:
+        if output.resolve() == source.resolve() or (
+            output.exists() and source.exists() and output.samefile(source)
+        ):
+            raise ValueError(
+                f"Output would overwrite input: {output} aliases {source}. "
+                "Choose a different -o path or remove the output alias first."
+            )
+
+
 def unique_output_path(output_dir: Path, stem: str, used_outputs: set[Path]) -> Path:
-    """Return an in-run unique Markdown path without consulting the filesystem."""
+    """Allocate an in-run unique Markdown path, rejecting remaining hardlink aliases."""
     base = stem or "output"
     candidate = output_dir / f"{base}.md"
     suffix = 2
     while _output_key(candidate) in used_outputs:
         candidate = output_dir / f"{base}_{suffix}.md"
         suffix += 1
+    reject_source_overwrite(candidate, list(used_outputs))
     used_outputs.add(_output_key(candidate))
     return candidate
 
@@ -84,8 +97,16 @@ def _output_for(
     batch_mode: bool,
     used_outputs: set[Path],
 ) -> Path:
-    if output_arg and batch_mode:
-        return unique_output_path(Path(output_arg), source.stem, used_outputs)
+    if batch_mode:
+        output_dir = Path(output_arg) if output_arg else source.parent
+        default_output = output_dir / f"{source.stem}.md"
+        output = unique_output_path(output_dir, source.stem, used_outputs)
+        if output != default_output:
+            _print_status(
+                f"[INFO] Renamed output for {source}: {default_output} -> {output} "
+                "(input/output collision)"
+            )
+        return output
     if output_arg:
         return Path(output_arg)
     return source.with_suffix(".md")
@@ -115,10 +136,16 @@ def run_path_batch(
     success_count = 0
     failed: list[str] = []
     skipped: list[str] = list(expansion_errors)
-    used_outputs: set[Path] = set()
+    used_outputs = {source.resolve() for source in sources}
+    try:
+        outputs = [_output_for(source, output_arg, batch_mode, used_outputs) for source in sources]
+        for output in outputs:
+            reject_source_overwrite(output, sources)
+    except (OSError, ValueError) as exc:
+        _print_status(f"[ERROR] {exc}")
+        return 1
 
-    for source in sources:
-        output = _output_for(source, output_arg, batch_mode, used_outputs)
+    for source, output in zip(sources, outputs):
         if batch_mode:
             _print_status(f"\n==> {source}")
         try:

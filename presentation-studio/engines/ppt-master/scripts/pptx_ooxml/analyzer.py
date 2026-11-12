@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+import sys
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -27,6 +29,7 @@ from .ooxml import (
     _paragraph_texts,
     _parse_slide_refs,
     _read_xml,
+    _remove_author_hidden_shapes,
     _shape_identity,
     _slide_relationships,
     _table_containers,
@@ -175,15 +178,26 @@ def _text_metrics(container: ET.Element, paragraph_count: int) -> dict[str, Any]
     }
 
 
-def _classify_page_type(index: int, total: int, text: str, slots: list[dict[str, Any]]) -> str:
+def _has_keyword(text: str, keywords: tuple[str, ...]) -> bool:
+    """Match Latin keywords as whole words and CJK keywords across line breaks."""
     normalized = text.lower()
+    compact = re.sub(r"\s+", "", normalized)  # vertical "目\n录" still reads 目录
+    return any(
+        re.search(rf"(?<![a-z]){re.escape(keyword)}(?![a-z])", normalized)
+        if keyword.isascii() else keyword in compact
+        for keyword in keywords
+    )
+
+
+def _classify_page_type(index: int, total: int, text: str, slots: list[dict[str, Any]]) -> str:
     if index == 1:
         return "cover_candidate"
-    if index == total or any(keyword in normalized for keyword in THANKS_KEYWORDS):
+    if index == total or _has_keyword(text, THANKS_KEYWORDS):
         return "ending_candidate"
-    if any(keyword in normalized for keyword in TOC_KEYWORDS):
+    if _has_keyword(text, TOC_KEYWORDS):
         return "toc_candidate"
-    if any(keyword in normalized for keyword in CHAPTER_KEYWORDS):
+    # Body prose mentions "部分"/"part" too; only a short page reads as a divider.
+    if len(text) <= 120 and _has_keyword(text, CHAPTER_KEYWORDS):
         return "chapter_candidate"
     if len(slots) <= 2 and len(text) <= 80:
         return "chapter_candidate"
@@ -241,12 +255,24 @@ def analyze_pptx(pptx_path: Path) -> dict[str, Any]:
         slides: list[dict[str, Any]] = []
         for slide_ref in slide_refs:
             slide_root = _read_xml(zf, slide_ref.part_name)
+            hidden_shapes = _remove_author_hidden_shapes(slide_root)
+            hidden_ids = {
+                node.get("id") for shape in hidden_shapes
+                for node in shape.iter(f"{{{NS['p']}}}cNvPr")
+            }
+            for shape in hidden_shapes:
+                shape_id, shape_name = _shape_identity(shape, 0)
+                print(
+                    f"Warning: slide {slide_ref.index}: excluded author-hidden shape "
+                    f"{shape_name!r} (id={shape_id}) and its children from PPTX intake",
+                    file=sys.stderr,
+                )
             slots: list[dict[str, Any]] = []
             for order, container in enumerate(_text_containers(slide_root), start=1):
                 shape_id, shape_name = _shape_identity(container, order)
                 paragraphs = _paragraph_texts(container)
                 text = "\n".join(paragraphs)
-                geometry = _container_geometry(container)
+                geometry = _container_geometry(container, slide_root)
                 role = _slot_role(
                     {
                         "text": text,
@@ -269,7 +295,10 @@ def analyze_pptx(pptx_path: Path) -> dict[str, Any]:
 
             tables = _analyze_tables(slide_root, slide_ref.index)
             charts = _analyze_charts(zf, slide_root, slide_ref)
-            diagrams = read_smartart_diagrams(zf, slide_ref.part_name, slide_ref.index)
+            diagrams = [
+                item for item in read_smartart_diagrams(zf, slide_ref.part_name, slide_ref.index)
+                if str(item.get("shape_id")) not in hidden_ids
+            ]
             slide_text = "\n".join(
                 [slot["text"] for slot in slots if slot["text"]]
                 + [

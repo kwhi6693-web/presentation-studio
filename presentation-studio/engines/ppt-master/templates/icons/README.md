@@ -18,7 +18,7 @@ This directory is the global library; the resource owner copies chosen icons int
 python3 skills/ppt-master/scripts/icon_sync.py <project_path> tabler-outline/home tabler-outline/bulb simple-icons/github
 ```
 
-Missing names, or one batch mixing the four stylistic libraries, exit non-zero; `simple-icons` may coexist. Files under `<project>/icons/` form the prepared pool and combine freely with user-provided, custom, or imported icons; `finalize_svg.py --only embed-icons`, preview, validation, and native export resolve only this pool. **Custom icons**: drop `.svg` files into `<project>/icons/<lib>/` (any `<lib>`, e.g. `custom/`) and reference `data-icon="<lib>/<name>"`. **Imported vectors**: `create-template` reserves `imported/` — one copy at `<workspace>/icons/imported/<name>.svg`, referenced as `data-icon="imported/<name>"`, never duplicated under `templates/` or used as a hand-curated library.
+Missing names, or one batch mixing the four stylistic libraries, exit non-zero; `simple-icons` may coexist. Files under `<project>/icons/` form the prepared pool and combine freely with user-provided, custom, or imported icons; `finalize_svg.py --only embed-icons`, preview, validation, and native export resolve only this pool. **Custom icons**: drop `.svg` files into `<project>/icons/<lib>/` (any `<lib>`, e.g. `custom/`) and reference `data-icon="<lib>/<name>"`. A multi-color file (a converted illustration, a logo) keeps its own colors only when its root `<svg>` carries `data-icon-style="preserve-color"`; without it the `<use>` fill recolors every shape. Size that `<use>` to the file's viewBox aspect ratio — unequal scaling stretches it and turns rotated shapes into shears native export rejects — and keep `clip-path` off its groups. **Imported vectors**: `create-template` reserves `imported/` — one copy at `<workspace>/icons/imported/<name>.svg`, referenced as `data-icon="imported/<name>"`, never duplicated under `templates/` or used as a hand-curated library.
 
 ## Usage
 
@@ -28,7 +28,7 @@ Missing names, or one batch mixing the four stylistic libraries, exit non-zero; 
 <use data-icon="simple-icons/github" x="100" y="200" width="48" height="48" fill="#181717"/>
 ```
 
-`data-icon` is `<library>/<icon-name>` (filename without `.svg`), case-sensitive because it resolves a real file — bundled names are canonical lowercase (`tabler-outline/award`), custom icons keep their file case; `x`, `y` position; `width`, `height` size (32–48px recommended); `fill` color. A complete `library/name` identifier is mandatory: bare names, abbreviated namespaces, paths into `templates/icons/`, and unsynced bundled files fail rather than fall back. `finalize_svg.py` embeds every placeholder during post-processing (`scripts/svg_finalize/embed_icons.py svg_output/*.svg` runs it manually).
+`data-icon` is `<library>/<icon-name>` (filename without `.svg`), case-sensitive because it resolves a real file — bundled names are canonical lowercase (`tabler-outline/award`), custom icons keep their file case; `x`, `y` position; `width`, `height` size (32–48px recommended on a 1280-wide canvas; scale with canvas width); `fill` color. A complete `library/name` identifier is mandatory: bare names, abbreviated namespaces, paths into `templates/icons/`, and unsynced bundled files fail rather than fall back. `finalize_svg.py` embeds every placeholder during post-processing (`scripts/svg_finalize/embed_icons.py svg_output/*.svg` runs it manually).
 
 ## Searching for Icons
 
