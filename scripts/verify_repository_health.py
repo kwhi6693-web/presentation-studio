@@ -45,16 +45,16 @@ REVIEWED_ACTIONS = {
         "v7.0.0",
     ),
     "actions/setup-node": (
-        "820762786026740c76f36085b0efc47a31fe5020",
-        "v7.0.0",
+        "949feb2413d6458794dcd2491c4babbbce0c15c1",
+        "v7.1.0",
     ),
     "actions/upload-artifact": (
-        "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-        "v7.0.1",
+        "cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+        "v7.0.2",
     ),
     "actions/create-github-app-token": (
-        "bcd2ba49218906704ab6c1aa796996da409d3eb1",
-        "v3.2.0",
+        "64ab729a6294000f5aa4a4bc0b73d1f32bc45510",
+        "v3.3.0",
     ),
 }
 
