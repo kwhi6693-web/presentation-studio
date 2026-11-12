@@ -3,11 +3,16 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "03:17"
       timezone: "Asia/Shanghai"
     open-pull-requests-limit: 3
+    # One pull request per month for every action bump, so the reviewed pin
+    # list in scripts/verify_repository_health.py is updated once.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
     commit-message:
       prefix: "ci"
       include: "scope"
