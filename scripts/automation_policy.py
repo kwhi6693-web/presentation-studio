@@ -69,6 +69,7 @@ SENSITIVE_FILE_RE = re.compile(
 # trusted sync may change one when the content at the PR head was fetched and
 # proven to contain only blank lines and ``#`` comments, i.e. no assignment
 # that could carry a value.  Anything else remains a protected path.
+GITHUB_WEB_FLOW_LOGIN = "web-flow"
 ENV_TEMPLATE_RE = re.compile(r"(?:^|/)\.env\.(?:example|sample|template)$")
 ENV_TEMPLATE_MAX_BYTES = 256 * 1024
 
@@ -277,9 +278,13 @@ def _identity_decision(
     if pr.author_login.lower() != expected_app_login.lower():
         return PolicyDecision("ignore", "PR author is not the configured trusted GitHub App")
     if pr.commit_identities is not None:
+        # GitHub commits its own server-side merges (the update-branch API the
+        # automation calls when a PR is behind main) as ``web-flow``.  Only the
+        # App's token can author such a commit as the App, so that pair is still
+        # App-originated; a person's "Update branch" click is authored by them.
+        app = expected_app_login.lower()
         if not pr.commit_identities or any(
-            author.lower() != expected_app_login.lower()
-            or committer.lower() != expected_app_login.lower()
+            author.lower() != app or committer.lower() not in {app, GITHUB_WEB_FLOW_LOGIN}
             for author, committer in pr.commit_identities
         ):
             return PolicyDecision(

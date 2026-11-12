@@ -214,6 +214,21 @@ class TrustedPullRequestPolicyTests(unittest.TestCase):
         self.assertEqual(decision.action, "block")
         self.assertIn("protected", decision.reason)
 
+    def test_app_authored_server_side_merge_commit_is_trusted(self) -> None:
+        decision = self.evaluate(
+            trusted_snapshot(commit_identities=((APP_LOGIN, APP_LOGIN), (APP_LOGIN, "web-flow")))
+        )
+
+        self.assertEqual(decision.action, "merge")
+
+    def test_person_update_branch_commit_still_blocks(self) -> None:
+        decision = self.evaluate(
+            trusted_snapshot(commit_identities=((APP_LOGIN, APP_LOGIN), ("kwhi6693-web", "web-flow")))
+        )
+
+        self.assertEqual(decision.action, "block")
+        self.assertIn("not authored and committed", decision.reason)
+
     def test_unverified_env_template_still_blocks_merge(self) -> None:
         decision = self.evaluate(
             trusted_snapshot(changed_paths=("presentation-studio/engines/ppt-master/.env.example",))

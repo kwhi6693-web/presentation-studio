@@ -117,6 +117,12 @@ the file at the PR head and finds only blank lines and `#` comments, so it canno
 a real value. Any assignment line, a rename, a removal, a fetch failure, a real `.env`
 or `.env.local`, or a path outside the source's managed paths stays protected.
 
+Every commit on a trusted sync PR must be authored by the App. Its committer may be the
+App or `web-flow`, because GitHub commits the server-side merge from the update-branch
+API that the automation itself calls when a PR falls behind `main`. A person clicking
+"Update branch" creates a commit authored by that person, which still blocks: leave
+sync PRs alone and let the automation update them.
+
 Two states are not treated as blockers, because GitHub resolves them on its own:
 
 - `mergeable_state: unstable` caused only by commit statuses outside GitHub Actions
