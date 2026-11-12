@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import io
 import json
 import os
@@ -20,6 +21,7 @@ from scripts.automation_policy import (
     evaluate_live_pull_request,
     evaluate_trusted_pull_request,
     fetch_pull_request_snapshot,
+    is_comment_only_env_template,
     is_transient_blocker,
     plan_semver_release,
     render_release_notes,
@@ -211,6 +213,44 @@ class TrustedPullRequestPolicyTests(unittest.TestCase):
 
         self.assertEqual(decision.action, "block")
         self.assertIn("protected", decision.reason)
+
+    def test_unverified_env_template_still_blocks_merge(self) -> None:
+        decision = self.evaluate(
+            trusted_snapshot(changed_paths=("presentation-studio/engines/ppt-master/.env.example",))
+        )
+
+        self.assertEqual(decision.action, "block")
+        self.assertIn("protected path modified", decision.reason)
+
+    def test_verified_comment_only_env_template_inside_managed_path_merges(self) -> None:
+        path = "presentation-studio/engines/ppt-master/.env.example"
+        decision = self.evaluate(
+            trusted_snapshot(
+                changed_paths=(path, "presentation-studio/engines/ppt-master/SKILL.md"),
+                verified_env_templates=frozenset({path}),
+            )
+        )
+
+        self.assertEqual(decision.action, "merge")
+
+    def test_verification_never_unlocks_real_env_files_or_other_sources(self) -> None:
+        for path in (
+            "presentation-studio/engines/ppt-master/.env",
+            "presentation-studio/engines/ppt-master/.env.local",
+            "presentation-studio/engines/baoyu/.env.example",
+        ):
+            with self.subTest(path=path):
+                decision = self.evaluate(
+                    trusted_snapshot(
+                        changed_paths=(path,), verified_env_templates=frozenset({path})
+                    )
+                )
+                self.assertEqual(decision.action, "block")
+
+    def test_comment_only_env_template_detection(self) -> None:
+        self.assertTrue(is_comment_only_env_template("# A=1\n\n   # OPENAI_API_KEY=sk-xxx\n"))
+        self.assertFalse(is_comment_only_env_template("# example\nOPENAI_API_KEY=sk-real\n"))
+        self.assertFalse(is_comment_only_env_template("export TOKEN=abc\n"))
 
     def test_unexpected_source_path_blocks_merge(self) -> None:
         decision = self.evaluate(
@@ -794,3 +834,81 @@ class PullRequestApiSnapshotTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EnvTemplateSnapshotTests(unittest.TestCase):
+    PATH = "presentation-studio/engines/ppt-master/.env.example"
+
+    def snapshot_with(self, content: str | None, *, status: str = "modified", previous: str | None = None):
+        path = self.PATH
+        calls: list[str] = []
+
+        class Api:
+            def request(self, url: str, **kwargs):
+                calls.append(url)
+                if url == f"/repos/{REPOSITORY}/pulls/42":
+                    return {
+                        "number": 42,
+                        "state": "open",
+                        "base": {"ref": "main", "repo": {"full_name": REPOSITORY}},
+                        "head": {
+                            "ref": "automation/sync-ppt-master-123-1",
+                            "repo": {"full_name": REPOSITORY},
+                            "sha": HEAD_SHA,
+                        },
+                        "changed_files": 1,
+                        "commits": 1,
+                        "user": {"login": APP_LOGIN},
+                        "draft": False,
+                        "labels": [],
+                        "mergeable": True,
+                        "mergeable_state": "clean",
+                        "merged": False,
+                        "merge_commit_sha": None,
+                        "title": "test",
+                    }
+                if url == f"/repos/{REPOSITORY}/contents/{path}?ref={HEAD_SHA}":
+                    if content is None:
+                        raise PolicyError("not found")
+                    raw = content.encode("utf-8")
+                    return {
+                        "type": "file",
+                        "encoding": "base64",
+                        "size": len(raw),
+                        "content": base64.b64encode(raw).decode("ascii"),
+                    }
+                raise AssertionError(f"unexpected API path: {url}")
+
+            def paginate(self, url: str):
+                if url.endswith("/files"):
+                    item = {"filename": path, "status": status}
+                    if previous:
+                        item["previous_filename"] = previous
+                    return [item]
+                if url.endswith("/commits"):
+                    return [{"author": {"login": APP_LOGIN}, "committer": {"login": APP_LOGIN}}]
+                raise AssertionError(f"unexpected paginated API path: {url}")
+
+        snapshot = fetch_pull_request_snapshot(
+            Api(), REPOSITORY, 42, include_checks=False, include_reviews=False
+        )
+        return snapshot, calls
+
+    def test_comment_only_template_is_verified(self) -> None:
+        snapshot, _ = self.snapshot_with("# OPENAI_API_KEY=sk-xxx\n\n# IMAGE_BACKEND=openai\n")
+        self.assertEqual(snapshot.verified_env_templates, frozenset({self.PATH}))
+
+    def test_template_with_an_assignment_is_not_verified(self) -> None:
+        snapshot, _ = self.snapshot_with("# example\nOPENAI_API_KEY=sk-live\n")
+        self.assertEqual(snapshot.verified_env_templates, frozenset())
+
+    def test_fetch_failure_rename_and_removal_stay_unverified(self) -> None:
+        for kwargs in (
+            {"content": None},
+            {"content": "# ok\n", "status": "removed"},
+            {"content": "# ok\n", "status": "renamed", "previous": "secrets/.env"},
+        ):
+            with self.subTest(kwargs=kwargs):
+                snapshot, _ = self.snapshot_with(**kwargs)
+                self.assertEqual(snapshot.verified_env_templates, frozenset())
+

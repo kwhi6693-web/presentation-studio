@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import dataclasses
 import json
 import os
@@ -62,6 +64,19 @@ SENSITIVE_FILE_RE = re.compile(
 )
 
 
+# Upstream engines ship documented ``.env`` *templates* (for example
+# ``.env.example``).  They are still caught by SENSITIVE_FILE_RE, but a
+# trusted sync may change one when the content at the PR head was fetched and
+# proven to contain only blank lines and ``#`` comments, i.e. no assignment
+# that could carry a value.  Anything else remains a protected path.
+ENV_TEMPLATE_RE = re.compile(r"(?:^|/)\.env\.(?:example|sample|template)$")
+ENV_TEMPLATE_MAX_BYTES = 256 * 1024
+
+
+def is_comment_only_env_template(text: str) -> bool:
+    return all(not line.strip() or line.lstrip().startswith("#") for line in text.splitlines())
+
+
 class PolicyError(RuntimeError):
     """A fail-closed policy or API error safe to show in workflow diagnostics."""
 
@@ -116,6 +131,9 @@ class PullRequestSnapshot:
     # ``None`` is reserved for in-process policy fixtures.  API snapshots must
     # carry at least one author/committer identity for every PR commit.
     commit_identities: tuple[tuple[str, str], ...] | None = None
+    # Changed ``.env`` template paths whose head content was fetched and
+    # verified by ``is_comment_only_env_template``.
+    verified_env_templates: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -164,6 +182,16 @@ def _is_protected_path(path: str) -> bool:
         or path.startswith(PROTECTED_PREFIXES)
         or SENSITIVE_FILE_RE.search(path) is not None
         or path.endswith((".pem", ".key", ".p12", ".pfx"))
+    )
+
+
+def _is_verified_env_template(path: str, verified: frozenset[str], allowed: Sequence[str]) -> bool:
+    return (
+        path in verified
+        and ENV_TEMPLATE_RE.search(path) is not None
+        and path not in PROTECTED_PATHS
+        and not path.startswith(PROTECTED_PREFIXES)
+        and any(path.startswith(f"{root}/") for root in allowed)
     )
 
 
@@ -286,13 +314,18 @@ def _identity_decision(
     return source, level
 
 
-def _path_blocker(source: str, changed_paths: Iterable[str]) -> str | None:
+def _path_blocker(
+    source: str,
+    changed_paths: Iterable[str],
+    verified_env_templates: Iterable[str] = (),
+) -> str | None:
     allowed = _allowed_paths(source)
     normalized = tuple(_normalized_path(path) for path in changed_paths)
+    verified = frozenset(_normalized_path(path) for path in verified_env_templates)
     if not normalized:
         return "trusted automation PR has no changed files"
     for path in normalized:
-        if _is_protected_path(path):
+        if _is_protected_path(path) and not _is_verified_env_template(path, verified, allowed):
             return f"protected path modified: {path}"
         if any(path == preserved or path.startswith(f"{preserved}/") for preserved in _preserved_paths(source)):
             return f"preserved adapter path modified: {path}"
@@ -327,7 +360,7 @@ def evaluate_trusted_pull_request(
         return PolicyDecision("block", "trusted automation PR is a draft", **common)
     if not COMMIT_RE.fullmatch(pr.head_sha):
         return PolicyDecision("block", "trusted automation PR has an invalid head SHA", **common)
-    path_blocker = _path_blocker(source, pr.changed_paths)
+    path_blocker = _path_blocker(source, pr.changed_paths, pr.verified_env_templates)
     if path_blocker:
         return PolicyDecision("block", path_blocker, **common)
     check = _required_check_conclusion(pr.check_runs, required_check)
@@ -666,7 +699,7 @@ def evaluate_main_release_candidate(
             pr.number,
             pr.head_sha,
         )
-    path_blocker = _path_blocker(source, pr.changed_paths)
+    path_blocker = _path_blocker(source, pr.changed_paths, pr.verified_env_templates)
     if path_blocker:
         return PolicyDecision(
             "block", path_blocker, source, release_level, pr.number, pr.head_sha
@@ -869,6 +902,47 @@ def _review_thread_count(api: GitHubApi, repository: str, number: int) -> int:
             raise PolicyError("GitHub GraphQL review-thread pagination cursor is missing")
 
 
+def _verify_env_templates(
+    api: GitHubApi, repository: str, head_sha: str, files: Sequence[Mapping]
+) -> frozenset[str]:
+    """Fetch changed ``.env`` templates at the PR head and keep comment-only ones.
+
+    Renames and removals are never verified, so they stay protected.  Any
+    fetch or decoding problem simply leaves the path unverified (fail closed).
+    """
+    verified: set[str] = set()
+    for item in files:
+        path = item.get("filename")
+        if (
+            not isinstance(path, str)
+            or ENV_TEMPLATE_RE.search(path) is None
+            or item.get("previous_filename")
+            or item.get("status") not in {"added", "modified"}
+        ):
+            continue
+        quoted = urllib.parse.quote(path, safe="/")
+        try:
+            payload = api.request(f"/repos/{repository}/contents/{quoted}?ref={head_sha}")
+        except PolicyError:
+            continue
+        if (
+            not isinstance(payload, dict)
+            or payload.get("type") != "file"
+            or payload.get("encoding") != "base64"
+            or not isinstance(payload.get("content"), str)
+            or not isinstance(payload.get("size"), int)
+            or payload["size"] > ENV_TEMPLATE_MAX_BYTES
+        ):
+            continue
+        try:
+            text = base64.b64decode(payload["content"], validate=False).decode("utf-8")
+        except (binascii.Error, UnicodeDecodeError):
+            continue
+        if is_comment_only_env_template(text):
+            verified.add(path)
+    return frozenset(verified)
+
+
 def fetch_pull_request_snapshot(
     api: GitHubApi,
     repository: str,
@@ -909,6 +983,7 @@ def fetch_pull_request_snapshot(
         for item in files
     ):
         raise PolicyError("GitHub pull request file response has an invalid filename")
+    verified_env_templates = _verify_env_templates(api, repository, pr["head"]["sha"], files)
     commit_count = pr.get("commits")
     if isinstance(commit_count, bool) or not isinstance(commit_count, int) or commit_count < 1:
         raise PolicyError("GitHub pull request response has an invalid commits count")
@@ -1000,6 +1075,7 @@ def fetch_pull_request_snapshot(
             merge_commit_sha=pr.get("merge_commit_sha"),
             title=str(pr.get("title") or ""),
             commit_identities=commit_identities,
+            verified_env_templates=verified_env_templates,
         )
     except (KeyError, TypeError, ValueError) as error:
         raise PolicyError("GitHub pull request response is incomplete") from error
