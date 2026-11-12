@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts.upstream_sync import (
+    load_source_configs,
     GitHubClient,
     ImportRule,
     ReleaseInfo,
@@ -1005,6 +1006,60 @@ class StagingImporterTests(unittest.TestCase):
         self.assertEqual(result.old_commit, None)
         self.assertEqual(result.new_commit, self.release.commit)
         self.assertIn("presentation-studio/engines/sample", result.changed_paths)
+
+    def test_configured_baoyu_sync_keeps_local_dependency_manifests(self) -> None:
+        """A baoyu release must not replace the locally patched dependency manifests."""
+
+        configured = {item.name: item for item in load_source_configs()}["baoyu-skills"]
+        manifests = (
+            "engines/baoyu/package.json",
+            "engines/baoyu/package-lock.json",
+            "engines/baoyu/pnpm-lock.yaml",
+        )
+        for manifest in manifests:
+            self.assertIn(manifest, configured.preserve)
+            self.assertNotIn(manifest, [rule.destination for rule in configured.imports])
+
+        engine = self.skill / "engines" / "baoyu"
+        engine.mkdir(parents=True)
+        (engine / "SKILL.md").write_text("adapter\n", encoding="utf-8")
+        local = {
+            "package.json": '{"dependencies": {"sharp": "^0.35.5"}, "overrides": {"image-size": "^2.1.0"}}\n',
+            "package-lock.json": '{"packages": {"node_modules/image-size": {"version": "2.1.0"}}}\n',
+            "pnpm-lock.yaml": "image-size@2.1.0: {}\n",
+        }
+        for name, content in local.items():
+            (engine / name).write_text(content, encoding="utf-8")
+        source = SourceConfig(
+            name="baoyu-skills",
+            owner="author",
+            repository_name="skill",
+            repository="https://github.com/author/skill.git",
+            expected_license="MIT",
+            imports=(
+                ImportRule(source="LICENSE", destination="engines/baoyu/LICENSE", mode="replace"),
+                ImportRule(source="skills", destination="engines/baoyu/skills", mode="replace"),
+            ),
+            preserve=("engines/baoyu/SKILL.md", *manifests),
+            license_candidates=("LICENSE",),
+        )
+        archive = self.make_archive(
+            {
+                "author-skill-release/LICENSE": "MIT License\n",
+                "author-skill-release/skills/demo.md": "new upstream skill\n",
+                "author-skill-release/package.json": '{"dependencies": {"sharp": "^0.34.5"}}\n',
+                "author-skill-release/package-lock.json": '{"packages": {"node_modules/image-size": {"version": "1.2.1"}}}\n',
+                "author-skill-release/pnpm-lock.yaml": "image-size@1.2.1: {}\n",
+            }
+        )
+
+        result = stage_source_update(self.root, source, self.release, archive)
+
+        self.assertEqual((engine / "skills" / "demo.md").read_text(encoding="utf-8"), "new upstream skill\n")
+        for name, content in local.items():
+            self.assertEqual((engine / name).read_text(encoding="utf-8"), content)
+        for manifest in manifests:
+            self.assertNotIn(f"presentation-studio/{manifest}", result.changed_paths)
 
     def test_successful_stage_updates_and_reports_provenance_metadata(self) -> None:
         (self.skill / "source-lock.json").write_text(

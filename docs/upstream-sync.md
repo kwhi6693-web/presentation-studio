@@ -139,3 +139,4 @@ The event payload is advisory. The synchronizer still queries GitHub, verifies r
 - Correct the configuration or compatibility issue on a feature branch; do not bypass validation.
 - Run `workflow_dispatch` after the fix.
 - If an upstream release is incompatible with the preserved adapter, keep the previous locked commit and document the reason. Do not silently report the new version as synchronized.
+- `baoyu-skills` dependency manifests (`engines/baoyu/package.json`, `package-lock.json`, `pnpm-lock.yaml`) are preserved, not imported. Upstream still pins vulnerable versions (`image-size` 1.x through `pptxgenjs`, `sharp` 0.34.x), and replacing the manifests would silently undo the local security overrides. When an upstream release adds or changes a dependency, update these three files by hand in a normal reviewed PR and confirm `npm audit --package-lock-only` reports no vulnerabilities.
