@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 
@@ -11,7 +12,15 @@ WORKFLOW = ROOT / ".github" / "workflows" / "sync-upstreams.yml"
 VALIDATE_WORKFLOW = ROOT / ".github" / "workflows" / "validate.yml"
 AUTO_MERGE_WORKFLOW = ROOT / ".github" / "workflows" / "auto-merge-upstream.yml"
 AUTO_RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "auto-release.yml"
-APP_TOKEN_PIN = "actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0"
+REVIEWED_ACTIONS = json.loads((ROOT / ".github" / "reviewed-actions.json").read_text(encoding="utf-8"))
+
+
+def reviewed_pin(action: str) -> str:
+    entry = REVIEWED_ACTIONS[action]
+    return f"{action}@{entry['commit']} # {entry['release']}"
+
+
+APP_TOKEN_PIN = reviewed_pin("actions/create-github-app-token")
 
 
 class UpstreamWorkflowContractTests(unittest.TestCase):
@@ -209,7 +218,7 @@ class UpstreamWorkflowContractTests(unittest.TestCase):
             'python-version: "3.12"',
             'python-version: "3.13"',
             "python -m venv --without-pip",
-            "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0",
+            reviewed_pin("actions/setup-node"),
             "needs: checks",
             "name: verify",
             "build_package.py",

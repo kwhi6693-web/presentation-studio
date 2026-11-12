@@ -1,0 +1,161 @@
+name: Auto merge verified Dependabot updates
+
+# Scheduled, not triggered by Dependabot: runs that Dependabot triggers get no
+# repository secrets, so they could not use the trusted App. The policy comes from
+# main and no pull-request code is executed.
+#
+# A GitHub Actions bump fails validation until its verified pin is recorded in
+# .github/reviewed-actions.json; this workflow records it first, then merges on a
+# later run once every check is green.
+on:
+  schedule:
+    - cron: "41 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+
+concurrency:
+  group: auto-merge-dependabot-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  dependabot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: List open Dependabot pull requests
+        id: candidates
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls?state=open&base=main&per_page=100" \
+            | jq -s --arg repo "$GITHUB_REPOSITORY" '
+                add // [] | map(select(
+                  .user.login == "dependabot[bot]" and .draft == false
+                  and .head.repo.full_name == $repo and (.head.ref | startswith("dependabot/"))
+                )) | map({number, head_sha: .head.sha, head_ref: .head.ref})' > "$RUNNER_TEMP/candidates.json"
+          count="$(jq 'length' "$RUNNER_TEMP/candidates.json")"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          if jq -e 'any(.[]; .head_ref | startswith("dependabot/github_actions/"))' "$RUNNER_TEMP/candidates.json" > /dev/null; then
+            echo "workflows=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "workflows=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "::notice::Open Dependabot PRs: $count"
+      - name: Checkout trusted default-branch policy
+        if: steps.candidates.outputs.count != '0'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Set up policy runtime
+        if: steps.candidates.outputs.count != '0'
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+      - name: Create trusted App token including workflow-file merges
+        if: steps.candidates.outputs.count != '0' && steps.candidates.outputs.workflows == 'true'
+        id: app-token-workflows
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.UPSTREAM_SYNC_APP_ID }}
+          private-key: ${{ secrets.UPSTREAM_SYNC_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-metadata: read
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
+      - name: Create trusted App token for dependency merges
+        if: steps.candidates.outputs.count != '0' && steps.candidates.outputs.workflows != 'true'
+        id: app-token-contents
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.UPSTREAM_SYNC_APP_ID }}
+          private-key: ${{ secrets.UPSTREAM_SYNC_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-metadata: read
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Evaluate and act on each Dependabot pull request
+        if: steps.candidates.outputs.count != '0'
+        shell: bash
+        env:
+          READ_TOKEN: ${{ github.token }}
+          WRITE_TOKEN: ${{ steps.app-token-workflows.outputs.token || steps.app-token-contents.outputs.token }}
+          APP_LOGIN: ${{ steps.app-token-workflows.outputs.app-slug || steps.app-token-contents.outputs.app-slug }}[bot]
+        run: |
+          set -euo pipefail
+          failures=0
+          marker="<!-- presentation-studio-dependabot-blocker -->"
+          while read -r pr; do
+            number="$(jq -r '.number' <<< "$pr")"
+            head_sha="$(jq -r '.head_sha' <<< "$pr")"
+            head_ref="$(jq -r '.head_ref' <<< "$pr")"
+            decision="$RUNNER_TEMP/decision-$number.json"
+            pins="$RUNNER_TEMP/reviewed-actions-$number.json"
+            rm -f "$pins"
+            GH_TOKEN="$READ_TOKEN" python scripts/dependabot_policy.py \
+              --repository "$GITHUB_REPOSITORY" --pr "$number" --head-sha "$head_sha" \
+              --app-login "$APP_LOGIN" --reviewed-actions-output "$pins" > "$decision"
+            action="$(jq -r '.action' "$decision")"
+            reason="$(jq -r '.reason | gsub("[\r\n]"; " ")' "$decision")"
+            echo "PR #$number: $action ($reason)"
+            case "$action" in
+              record-pins)
+                path=".github/reviewed-actions.json"
+                blob="$(GH_TOKEN="$READ_TOKEN" gh api "repos/$GITHUB_REPOSITORY/contents/$path?ref=$head_sha" --jq '.sha')"
+                jq -n --arg message "ci: record verified action pins" \
+                      --arg content "$(base64 --wrap=0 < "$pins")" \
+                      --arg sha "$blob" --arg branch "$head_ref" \
+                      '{message:$message, content:$content, sha:$sha, branch:$branch}' \
+                  | GH_TOKEN="$WRITE_TOKEN" gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$path" --input - > /dev/null
+                echo "::notice::PR #$number: recorded verified action pins; it merges on a later run once checks pass."
+                ;;
+              update)
+                jq -cn --arg sha "$head_sha" '{expected_head_sha:$sha}' \
+                  | GH_TOKEN="$WRITE_TOKEN" gh api --method PUT "repos/$GITHUB_REPOSITORY/pulls/$number/update-branch" --input - > /dev/null
+                echo "::notice::PR #$number: updated from main; it merges on a later run once checks pass."
+                ;;
+              merge)
+                jq -cn --arg sha "$head_sha" '{sha:$sha, merge_method:"squash"}' \
+                  | GH_TOKEN="$WRITE_TOKEN" gh api --method PUT "repos/$GITHUB_REPOSITORY/pulls/$number/merge" --input - > /dev/null
+                GH_TOKEN="$WRITE_TOKEN" gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$head_ref" > /dev/null || true
+                echo "::notice::PR #$number: merged."
+                ;;
+              block)
+                body="$(printf '%s\nAutomatic merge stopped: %s\n\nWorkflow run: %s/%s/actions/runs/%s' \
+                  "$marker" "$reason" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")"
+                GH_TOKEN="$READ_TOKEN" gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$number/comments" \
+                  | jq -s --arg marker "$marker" 'add // [] | map(select(.body | startswith($marker))) | first // {}' > "$RUNNER_TEMP/existing.json"
+                existing="$(jq -r '.id // ""' "$RUNNER_TEMP/existing.json")"
+                if [[ -n "$existing" ]] && jq -e --arg reason "Automatic merge stopped: $reason" '.body | contains($reason)' "$RUNNER_TEMP/existing.json" > /dev/null; then
+                  echo "::warning::PR #$number is still blocked (already reported): $reason"
+                  continue
+                fi
+                if [[ -n "$existing" ]]; then
+                  GH_TOKEN="$WRITE_TOKEN" gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" -f body="$body" > /dev/null
+                else
+                  GH_TOKEN="$WRITE_TOKEN" gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$number/comments" -f body="$body" > /dev/null
+                fi
+                GH_TOKEN="$WRITE_TOKEN" gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$number/labels" -f "labels[]=manual-review" > /dev/null
+                echo "::error::PR #$number: $reason"
+                failures=$((failures + 1))
+                ;;
+              ignore) ;;
+              *)
+                echo "::error::PR #$number: unknown policy action $action"
+                failures=$((failures + 1))
+                ;;
+            esac
+          done < <(jq -c '.[]' "$RUNNER_TEMP/candidates.json")
+          if ((failures > 0)); then
+            exit 1
+          fi

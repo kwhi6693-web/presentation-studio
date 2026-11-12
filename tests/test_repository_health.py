@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import tempfile
 import unittest
@@ -16,6 +17,35 @@ if HEALTH_SCRIPT.is_file():
     if spec is not None and spec.loader is not None:
         health = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(health)
+
+
+REVIEWED_ACTIONS_FIXTURE = {
+    "actions/checkout": {
+        "commit": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "release": "v7.0.1",
+        "uses": 6
+    },
+    "actions/setup-python": {
+        "commit": "6d4fd22b20465ccc0f7354476588e8df7c9ca0e0",
+        "release": "v7.1.0",
+        "uses": 5
+    },
+    "actions/setup-node": {
+        "commit": "949feb2413d6458794dcd2491c4babbbce0c15c1",
+        "release": "v7.1.0",
+        "uses": 3
+    },
+    "actions/upload-artifact": {
+        "commit": "cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+        "release": "v7.0.2",
+        "uses": 2
+    },
+    "actions/create-github-app-token": {
+        "commit": "64ab729a6294000f5aa4a4bc0b73d1f32bc45510",
+        "release": "v3.3.0",
+        "uses": 3
+    }
+}
 
 
 class RepositoryHealthVerifierTests(unittest.TestCase):
@@ -298,6 +328,9 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
 
         workflows = root / ".github" / "workflows"
         workflows.mkdir(parents=True)
+        (root / ".github" / "reviewed-actions.json").write_text(
+            json.dumps(REVIEWED_ACTIONS_FIXTURE), encoding="utf-8"
+        )
         (workflows / "validate.yml").write_text(
             "steps:\n"
             "  - uses: actions/checkout@"

@@ -35,36 +35,9 @@ ISSUE_FORMS = (
     ".github/ISSUE_TEMPLATE/upstream_sync.yml",
 )
 
-REVIEWED_ACTIONS = {
-    "actions/checkout": (
-        "3d3c42e5aac5ba805825da76410c181273ba90b1",
-        "v7.0.1",
-    ),
-    "actions/setup-python": (
-        "6d4fd22b20465ccc0f7354476588e8df7c9ca0e0",
-        "v7.1.0",
-    ),
-    "actions/setup-node": (
-        "949feb2413d6458794dcd2491c4babbbce0c15c1",
-        "v7.1.0",
-    ),
-    "actions/upload-artifact": (
-        "cf430e030ddbb5b0abf93d22962f4752f3646cd9",
-        "v7.0.2",
-    ),
-    "actions/create-github-app-token": (
-        "64ab729a6294000f5aa4a4bc0b73d1f32bc45510",
-        "v3.3.0",
-    ),
-}
-
-EXPECTED_ACTION_COUNTS = {
-    "actions/checkout": 6,
-    "actions/setup-python": 5,
-    "actions/setup-node": 3,
-    "actions/upload-artifact": 2,
-    "actions/create-github-app-token": 3,
-}
+# Reviewed official-action pins live in data so the Dependabot automation can
+# record a pin after verifying it against the upstream release tag.
+REVIEWED_ACTIONS_PATH = ".github/reviewed-actions.json"
 
 PYTHON_CONTRACT_ROOTS = (
     "scripts",
@@ -189,9 +162,36 @@ def _validate_issue_forms(root: Path) -> list[str]:
     return issues
 
 
+def load_reviewed_actions(root: Path) -> dict[str, dict]:
+    path = root / REVIEWED_ACTIONS_PATH
+    data = json.loads(path.read_text(encoding="utf-8-sig"))
+    if not isinstance(data, dict):
+        raise ValueError("reviewed actions must be an object")
+    for action, entry in data.items():
+        if (
+            not isinstance(action, str)
+            or re.fullmatch(r"actions/[A-Za-z0-9_.-]+", action) is None
+            or not isinstance(entry, dict)
+            or set(entry) != {"commit", "release", "uses"}
+            or not isinstance(entry["commit"], str)
+            or re.fullmatch(r"[0-9a-f]{40}", entry["commit"]) is None
+            or not isinstance(entry["release"], str)
+            or re.fullmatch(r"v[0-9]+(?:\.[0-9]+){0,2}", entry["release"]) is None
+            or isinstance(entry["uses"], bool)
+            or not isinstance(entry["uses"], int)
+            or entry["uses"] < 1
+        ):
+            raise ValueError(f"invalid reviewed action entry: {action}")
+    return data
+
+
 def _validate_actions(root: Path) -> list[str]:
     issues: list[str] = []
     action_counts: Counter[str] = Counter()
+    try:
+        reviewed = load_reviewed_actions(root)
+    except (OSError, ValueError) as error:
+        return [f"reviewed action pins are invalid: {REVIEWED_ACTIONS_PATH}: {error}"]
     workflow_root = root / ".github" / "workflows"
     if not workflow_root.is_dir():
         return ["GitHub Actions workflow directory is missing"]
@@ -219,18 +219,19 @@ def _validate_actions(root: Path) -> list[str]:
                     f"{action}@{revision}"
                 )
                 continue
-            expected = REVIEWED_ACTIONS.get(action)
+            expected = reviewed.get(action)
             if expected is None:
                 issues.append(f"official action is not approved: {action}")
                 continue
-            expected_revision, expected_comment = expected
+            expected_revision, expected_comment = expected["commit"], expected["release"]
             if revision != expected_revision or comment != expected_comment:
                 rendered_comment = f" # {comment}" if comment else ""
                 issues.append(
                     "official action pin does not match reviewed release: "
                     f"{action}@{revision}{rendered_comment}"
                 )
-    for action, expected_count in EXPECTED_ACTION_COUNTS.items():
+    for action, entry in reviewed.items():
+        expected_count = entry["uses"]
         actual_count = action_counts[action]
         if actual_count != expected_count:
             issues.append(
