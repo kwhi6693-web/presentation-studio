@@ -300,6 +300,16 @@ jobs:
               --body-file "$PR_BODY" \
               --add-label "automation:upstream-sync" \
               --add-label "release:patch"
+            # A new upstream head is fresh evidence. If the fail-closed manual-review label
+            # was applied by this App (never by a person), clear it so the new head is
+            # re-evaluated by the normal merge gates instead of staying blocked forever.
+            pr_number="${EXISTING_PR##*/}"
+            last_labeler="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$pr_number/timeline?per_page=100" \
+              --jq '.[] | select(.event == "labeled" and .label.name == "manual-review") | .actor.login' | tail -n 1)"
+            if [[ "$last_labeler" == "$APP_LOGIN" ]]; then
+              gh api --method DELETE "repos/$GITHUB_REPOSITORY/issues/$pr_number/labels/manual-review" > /dev/null
+              echo "::notice::Cleared the App-applied manual-review label for the new upstream head."
+            fi
             pr_url="$EXISTING_PR"
           else
             pr_url="$(gh pr create \

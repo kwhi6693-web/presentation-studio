@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import io
+import json
+import os
 import subprocess
 import sys
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 from scripts.automation_policy import (
     PolicyError,
@@ -15,6 +20,7 @@ from scripts.automation_policy import (
     evaluate_live_pull_request,
     evaluate_trusted_pull_request,
     fetch_pull_request_snapshot,
+    is_transient_blocker,
     plan_semver_release,
     render_release_notes,
     validate_provenance_payloads,
@@ -145,6 +151,52 @@ class TrustedPullRequestPolicyTests(unittest.TestCase):
 
         self.assertEqual(decision.action, "block")
         self.assertIn("conflict", decision.reason)
+
+    def test_unstable_from_external_status_merges_when_all_check_runs_are_green(self) -> None:
+        # A pending or failed Vercel preview makes GitHub report "unstable"; it must not
+        # leave a trusted sync PR permanently blocked (PR #28 stayed open for months).
+        decision = self.evaluate(trusted_snapshot(mergeable_state="unstable"))
+
+        self.assertEqual(decision.action, "merge")
+
+    def test_unstable_with_a_failed_check_run_still_blocks(self) -> None:
+        decision = self.evaluate(
+            trusted_snapshot(
+                mergeable_state="unstable",
+                check_runs=(("verify", "success"), ("checks (ubuntu-latest, Python 3.10)", "failure")),
+            )
+        )
+
+        self.assertEqual(decision.action, "block")
+        self.assertFalse(is_transient_blocker(decision))
+
+    def test_unstable_while_a_check_run_is_still_running_is_transient(self) -> None:
+        decision = self.evaluate(
+            trusted_snapshot(
+                mergeable_state="unstable",
+                check_runs=(("verify", "success"), ("checks (ubuntu-latest, Python 3.10)", "in_progress")),
+            )
+        )
+
+        self.assertEqual(decision.action, "block")
+        self.assertTrue(is_transient_blocker(decision))
+
+    def test_unknown_mergeability_is_transient_not_manual_review(self) -> None:
+        decision = self.evaluate(trusted_snapshot(mergeable=None, mergeable_state="unknown"))
+
+        self.assertEqual(decision.action, "block")
+        self.assertTrue(is_transient_blocker(decision))
+
+    def test_real_blockers_are_not_transient(self) -> None:
+        for snapshot in (
+            trusted_snapshot(mergeable=False, mergeable_state="dirty"),
+            trusted_snapshot(labels=frozenset({"automation:upstream-sync", "release:patch", "manual-review"})),
+            trusted_snapshot(changed_paths=(".github/workflows/validate.yml",)),
+        ):
+            with self.subTest(snapshot=snapshot.mergeable_state):
+                decision = self.evaluate(snapshot)
+                self.assertEqual(decision.action, "block")
+                self.assertFalse(is_transient_blocker(decision))
 
     def test_behind_branch_is_updated_instead_of_merged(self) -> None:
         decision = self.evaluate(trusted_snapshot(mergeable_state="behind"))
@@ -549,6 +601,53 @@ class AutomationPolicyCliTests(unittest.TestCase):
 
         self.assertEqual(process.returncode, 0, process.stderr)
         self.assertIn("evaluate-pr", process.stdout)
+
+
+class EvaluatePrPollingTests(unittest.TestCase):
+    def run_cli(self, snapshots):
+        from scripts import automation_policy
+
+        calls = []
+
+        def fake_fetch(api, repository, number, **kwargs):
+            calls.append(number)
+            return snapshots[min(len(calls), len(snapshots)) - 1]
+
+        argv = [
+            "evaluate-pr",
+            "--repository", REPOSITORY,
+            "--pr", "42",
+            "--expected-app-login", APP_LOGIN,
+            "--expected-head-sha", HEAD_SHA,
+        ]
+        env = {"GH_TOKEN": "t", "POLICY_TRANSIENT_ATTEMPTS": "3", "POLICY_TRANSIENT_DELAY_SECONDS": "0"}
+        output = io.StringIO()
+        with patch.object(automation_policy, "fetch_pull_request_snapshot", fake_fetch), \
+                patch.dict(os.environ, env), redirect_stdout(output):
+            status = automation_policy.main(argv)
+        return status, json.loads(output.getvalue()), calls
+
+    def test_unknown_mergeability_is_repolled_until_it_settles(self) -> None:
+        status, decision, calls = self.run_cli(
+            [trusted_snapshot(mergeable=None, mergeable_state="unknown"), trusted_snapshot()]
+        )
+
+        self.assertEqual(status, 0)
+        self.assertEqual(decision["action"], "merge")
+        self.assertEqual(len(calls), 2)
+
+    def test_state_that_never_settles_becomes_ignore_not_block(self) -> None:
+        status, decision, calls = self.run_cli([trusted_snapshot(mergeable=None, mergeable_state="unknown")])
+
+        self.assertEqual(status, 0)
+        self.assertEqual(decision["action"], "ignore")
+        self.assertEqual(len(calls), 3)
+
+    def test_real_blocker_is_reported_immediately(self) -> None:
+        status, decision, calls = self.run_cli([trusted_snapshot(mergeable=False, mergeable_state="dirty")])
+
+        self.assertEqual(decision["action"], "block")
+        self.assertEqual(len(calls), 1)
 
 
 class PullRequestApiSnapshotTests(unittest.TestCase):

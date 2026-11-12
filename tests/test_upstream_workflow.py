@@ -72,6 +72,16 @@ class UpstreamWorkflowContractTests(unittest.TestCase):
         self.assertIn("--smoke", self.workflow)
         self.assertGreaterEqual(self.workflow.count("verify_package.py"), 2)
 
+    def test_existing_pr_update_clears_only_app_applied_manual_review(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "sync-upstreams.yml").read_text(encoding="utf-8")
+        start = workflow.index('if [[ -n "$EXISTING_PR" ]]; then')
+        end = workflow.index("else", start)
+        block = workflow[start:end]
+        self.assertIn('select(.event == "labeled" and .label.name == "manual-review")', block)
+        self.assertIn('if [[ "$last_labeler" == "$APP_LOGIN" ]]; then', block)
+        self.assertIn("issues/$pr_number/labels/manual-review", block)
+        self.assertLess(block.index("gh pr edit"), block.index("labels/manual-review"))
+
     def test_triggers_permissions_and_existing_pr_update_are_preserved(self) -> None:
         for term in (
             "repository_dispatch",
