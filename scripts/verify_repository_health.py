@@ -255,7 +255,8 @@ def _validate_dependabot(root: Path) -> list[str]:
 
     required_terms = {
         'directory: "/"': "Dependabot github-actions directory must be repository root",
-        'interval: "weekly"': "Dependabot github-actions interval must be weekly",
+        'interval: "monthly"': "Dependabot github-actions interval must be monthly",
+        "groups:": "Dependabot github-actions updates must be grouped",
         "open-pull-requests-limit: 3": "Dependabot open pull request limit must be 3",
         'prefix: "ci"': "Dependabot commit prefix must be ci",
     }

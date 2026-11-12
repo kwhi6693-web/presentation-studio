@@ -146,8 +146,8 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             self._write_complete_repository(root)
             dependabot = root / ".github" / "dependabot.yml"
             text = dependabot.read_text(encoding="utf-8").replace(
-                'interval: "weekly"', 'interval: "daily"'
-            )
+                'interval: "monthly"', 'interval: "daily"'
+            ).replace("groups:", "ungrouped:")
             text += '  - package-ecosystem: "npm"\n    directory: "/"\n'
             dependabot.write_text(text, encoding="utf-8")
 
@@ -155,8 +155,9 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
 
             self.assertIn("Dependabot may update github-actions only", issues)
             self.assertIn(
-                "Dependabot github-actions interval must be weekly", issues
+                "Dependabot github-actions interval must be monthly", issues
             )
+            self.assertIn("Dependabot github-actions updates must be grouped", issues)
 
     @unittest.skipIf(health is None, "repository health verifier is missing")
     def test_issue_form_without_validations_fails(self) -> None:
@@ -361,8 +362,12 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             '  - package-ecosystem: "github-actions"\n'
             '    directory: "/"\n'
             "    schedule:\n"
-            '      interval: "weekly"\n'
+            '      interval: "monthly"\n'
             "    open-pull-requests-limit: 3\n"
+            "    groups:\n"
+            "      github-actions:\n"
+            "        patterns:\n"
+            '          - "*"\n'
             "    commit-message:\n"
             '      prefix: "ci"\n',
             encoding="utf-8",
