@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -348,11 +349,50 @@ def evaluate_trusted_pull_request(
         return PolicyDecision("block", "PR has a merge conflict", **common)
     if pr.mergeable is not True:
         return PolicyDecision("block", "GitHub mergeability is unknown", **common)
-    if pr.mergeable_state.lower() not in {"clean", "has_hooks"}:
+    state = pr.mergeable_state.lower()
+    if state == "unstable" and _only_external_statuses_pending(pr.check_runs):
+        # GitHub reports "unstable" when a commit status outside GitHub Actions (for
+        # example a Vercel preview) is still pending or has failed. The merge gate is
+        # the required Actions check, verified above; every Actions check run is green.
+        pass
+    elif state == "unstable":
+        failed = sorted(
+            name
+            for name, conclusion in pr.check_runs
+            if conclusion.lower() not in {"success", "neutral", "skipped", *PENDING_CHECK_STATES}
+        )
+        if failed:
+            return PolicyDecision("block", f"PR has a failed check run: {failed[0]}", **common)
+        return PolicyDecision("block", CHECKS_STILL_RUNNING, **common)
+    elif state not in {"clean", "has_hooks"}:
         return PolicyDecision(
             "block", f"PR mergeable state is not clean (actual: {pr.mergeable_state})", **common
         )
     return PolicyDecision("merge", "all trusted upstream merge gates passed", **common)
+
+
+PENDING_CHECK_STATES = {"", "queued", "in_progress", "pending", "waiting", "requested"}
+CHECKS_STILL_RUNNING = "PR check runs are still running"
+TRANSIENT_BLOCKERS = (
+    "GitHub mergeability is unknown",
+    "PR mergeable state is not clean (actual: unknown)",
+    CHECKS_STILL_RUNNING,
+)
+
+
+def _only_external_statuses_pending(check_runs: Sequence[tuple[str, str]]) -> bool:
+    """True when every GitHub Actions check run on the head finished green."""
+
+    return bool(check_runs) and all(
+        conclusion.lower() in {"success", "neutral", "skipped"} for _, conclusion in check_runs
+    )
+
+
+def is_transient_blocker(decision: PolicyDecision) -> bool:
+    """A blocker that GitHub resolves on its own within minutes (mergeability still computing,
+    or check runs still finishing). It must be re-polled, never turned into manual-review."""
+
+    return decision.action == "block" and decision.reason in TRANSIENT_BLOCKERS
 
 
 def evaluate_live_pull_request(
@@ -1137,13 +1177,27 @@ def main(argv: Sequence[str] | None = None) -> int:
                 }
             print(json.dumps(output, ensure_ascii=False, indent=2))
             return 0
-        snapshot = fetch_pull_request_snapshot(api, args.repository, args.pr)
-        decision = evaluate_live_pull_request(
-            snapshot,
-            repository=args.repository,
-            expected_app_login=args.expected_app_login,
-            expected_head_sha=args.expected_head_sha,
-        )
+        attempts = max(1, int(os.environ.get("POLICY_TRANSIENT_ATTEMPTS", "12")))
+        delay = float(os.environ.get("POLICY_TRANSIENT_DELAY_SECONDS", "15"))
+        for attempt in range(attempts):
+            snapshot = fetch_pull_request_snapshot(api, args.repository, args.pr)
+            decision = evaluate_live_pull_request(
+                snapshot,
+                repository=args.repository,
+                expected_app_login=args.expected_app_login,
+                expected_head_sha=args.expected_head_sha,
+            )
+            if not is_transient_blocker(decision) or attempt == attempts - 1:
+                break
+            time.sleep(delay)
+        if is_transient_blocker(decision):
+            # Still settling after the polling window: do not apply manual-review for a
+            # state GitHub has not finished computing. The next validation re-evaluates.
+            decision = dataclasses.replace(
+                decision,
+                action="ignore",
+                reason=f"transient GitHub state did not settle; waiting for the next validation ({decision.reason})",
+            )
         print(json.dumps(_json_record(decision), ensure_ascii=False, indent=2))
         return 0
     except PolicyError as error:
