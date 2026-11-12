@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 UPSTREAM = 'presentation-studio/engines/ppt-master/scripts/tests/test_preview_browser.py'
 PDF_UPSTREAM = 'presentation-studio/engines/ppt-master/scripts/tests/test_pdf_content_preservation.py'
+NARRATION_UPSTREAM = 'presentation-studio/engines/ppt-master/scripts/tests/test_openai_narration.py'
 
 
 class UpstreamWhitespaceTests(unittest.TestCase):
@@ -22,6 +23,8 @@ class UpstreamWhitespaceTests(unittest.TestCase):
                      (UPSTREAM, b'pass \n', 2),
                      (PDF_UPSTREAM, b'pass\n\n', 0),
                      (PDF_UPSTREAM, b'pass \n', 2),
+                     (NARRATION_UPSTREAM, b'pass\n\n', 0),
+                     (NARRATION_UPSTREAM, b'pass \n', 2),
                      ('other.py', b'pass\n\n', 2),
                      ('presentation-studio/engines/ppt-master/scripts/tests/other.py', b'pass\n\n', 2)]
             for name, content, expected in cases:
