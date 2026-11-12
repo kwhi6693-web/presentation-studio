@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # PPT Master Dependencies / PPT Master 依赖
 # =============================================
 #
@@ -34,6 +35,11 @@ edge-tts>=7.2.8
 # ─────────────────────────────────────────────────────────────
 # Converts PDF to Markdown with text, image, and table extraction.
 # 用于将 PDF 文件转换为 Markdown 格式，支持文本、图片、表格提取
+# License notice: PyMuPDF is AGPL-3.0 (commercial license available from Artifex).
+# It is imported only by pdf_to_md.py; skip this line if you never convert PDF
+# sources, and review the AGPL terms before redistributing a bundle that includes it.
+# 许可证说明：PyMuPDF 采用 AGPL-3.0（Artifex 另提供商业许可）。仅 pdf_to_md.py 导入它；
+# 不转换 PDF 源可跳过此行；若要连同依赖一起再分发，请先核对 AGPL 条款。
 PyMuPDF>=1.23.0
 
 # ─────────────────────────────────────────────────────────────
@@ -97,6 +103,16 @@ curl_cffi>=0.7.0
 google-genai>=1.0.0
 # OpenAI-compatible backend uses requests from the web tooling section above.
 # OpenAI 兼容后端复用上方网页工具所需的 requests。
+
+# ─────────────────────────────────────────────────────────────
+# Image OCR / 图片文字识别 (skills/ppt-master/scripts/image_ocr.py) — optional, not installed
+# ─────────────────────────────────────────────────────────────
+# Image to PPTX reads page text and positions with OCR when these are present;
+# about 170 MB with OpenCV, so they stay commented out. Install on demand:
+# Image to PPTX 有 OCR 时用它读取页面文字与位置；连同 OpenCV 约 170 MB，故默认不装。按需安装：
+#   pip install rapidocr onnxruntime
+# rapidocr>=3.0
+# onnxruntime>=1.17
 
 # ─────────────────────────────────────────────────────────────
 # SVG Editor / SVG 编辑器 (skills/ppt-master/scripts/svg_editor/server.py)
