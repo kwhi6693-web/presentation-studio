@@ -11,12 +11,26 @@ WORKFLOW = ROOT / ".github" / "workflows" / "sync-upstreams.yml"
 VALIDATE_WORKFLOW = ROOT / ".github" / "workflows" / "validate.yml"
 AUTO_MERGE_WORKFLOW = ROOT / ".github" / "workflows" / "auto-merge-upstream.yml"
 AUTO_RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "auto-release.yml"
-APP_TOKEN_PIN = "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0"
+APP_TOKEN_PIN = "actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0"
 
 
 class UpstreamWorkflowContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    def test_scope_checks_use_null_delimited_git_paths(self) -> None:
+        for workflow in (WORKFLOW, AUTO_MERGE_WORKFLOW, AUTO_RELEASE_WORKFLOW):
+            with self.subTest(workflow=workflow.name):
+                content = workflow.read_text(encoding="utf-8")
+                producers = [line for line in content.splitlines()
+                             if "git diff " in line and "--no-renames --name-only" in line]
+                consumers = [line for line in content.splitlines() if "--paths-file" in line]
+                self.assertTrue(producers)
+                self.assertEqual(len(producers), len(consumers))
+                for line in producers:
+                    self.assertIn("--name-only -z", line)
+                for line in consumers:
+                    self.assertIn("--null --paths-file", line)
 
     def test_matrix_isolates_all_four_upstream_sources(self) -> None:
         matrix_start = self.workflow.index("matrix:")
@@ -185,7 +199,7 @@ class UpstreamWorkflowContractTests(unittest.TestCase):
             'python-version: "3.12"',
             'python-version: "3.13"',
             "python -m venv --without-pip",
-            "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0",
+            "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0",
             "needs: checks",
             "name: verify",
             "build_package.py",

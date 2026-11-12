@@ -304,7 +304,7 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             "  - uses: actions/setup-python@"
             "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0\n"
             "  - uses: actions/setup-node@"
-            "820762786026740c76f36085b0efc47a31fe5020 # v7.0.0\n",
+            "949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n",
             encoding="utf-8",
         )
         (workflows / "sync-upstreams.yml").write_text(
@@ -314,11 +314,11 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             "  - uses: actions/setup-python@"
             "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0\n"
             "  - uses: actions/setup-node@"
-            "820762786026740c76f36085b0efc47a31fe5020 # v7.0.0\n"
+            "949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n"
             "  - uses: actions/upload-artifact@"
-            "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1\n"
+            "cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n"
             "  - uses: actions/create-github-app-token@"
-            "bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0\n",
+            "64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0\n",
             encoding="utf-8",
         )
         (workflows / "auto-merge-upstream.yml").write_text(
@@ -330,7 +330,7 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             "  - uses: actions/setup-python@"
             "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0\n"
             "  - uses: actions/create-github-app-token@"
-            "bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0\n",
+            "64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0\n",
             encoding="utf-8",
         )
         (workflows / "auto-release.yml").write_text(
@@ -340,9 +340,9 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             "  - uses: actions/setup-python@"
             "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0\n"
             "  - uses: actions/setup-node@"
-            "820762786026740c76f36085b0efc47a31fe5020 # v7.0.0\n"
+            "949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n"
             "  - uses: actions/create-github-app-token@"
-            "bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0\n",
+            "64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0\n",
             encoding="utf-8",
         )
         (workflows / "portability-pilot.yml").write_text(
@@ -352,7 +352,7 @@ class RepositoryHealthVerifierTests(unittest.TestCase):
             "  - uses: actions/setup-python@"
             "5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0\n"
             "  - uses: actions/upload-artifact@"
-            "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1\n",
+            "cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n",
             encoding="utf-8",
         )
         (root / ".github" / "dependabot.yml").write_text(
