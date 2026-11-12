@@ -1,4 +1,8 @@
-"""Keep upstream EOF whitespace compatible without weakening other checks."""
+"""Keep upstream EOF whitespace compatible without weakening other checks.
+
+Blank lines at EOF are tolerated only inside the vendored engine trees; trailing
+spaces are rejected everywhere, and local files keep every whitespace check.
+"""
 import subprocess
 import tempfile
 import unittest
@@ -11,7 +15,7 @@ NARRATION_UPSTREAM = 'presentation-studio/engines/ppt-master/scripts/tests/test_
 
 
 class UpstreamWhitespaceTests(unittest.TestCase):
-    def test_exception_is_limited_to_known_upstream_file_and_blank_eof(self):
+    def test_exception_is_limited_to_vendored_engines_and_blank_eof(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             def git(*args):
@@ -25,8 +29,14 @@ class UpstreamWhitespaceTests(unittest.TestCase):
                      (PDF_UPSTREAM, b'pass \n', 2),
                      (NARRATION_UPSTREAM, b'pass\n\n', 0),
                      (NARRATION_UPSTREAM, b'pass \n', 2),
+                     ('presentation-studio/engines/ppt-master/scripts/tests/other.py', b'pass\n\n', 0),
+                     ('presentation-studio/engines/ppt-master/scripts/tests/other.py', b'pass \n', 2),
+                     ('presentation-studio/engines/baoyu/skills/example/notes.md', b'text\n\n', 0),
+                     ('presentation-studio/engines/baoyu/skills/example/notes.md', b'text \n', 2),
                      ('other.py', b'pass\n\n', 2),
-                     ('presentation-studio/engines/ppt-master/scripts/tests/other.py', b'pass\n\n', 2)]
+                     ('scripts/local_tool.py', b'pass\n\n', 2),
+                     ('presentation-studio/SKILL.md', b'text\n\n', 2),
+                     ('presentation-studio/scripts/local_adapter.py', b'pass\n\n', 2)]
             for name, content, expected in cases:
                 with self.subTest(name=name, content=content):
                     target = root / name
